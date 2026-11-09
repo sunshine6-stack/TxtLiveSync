@@ -1,0 +1,378 @@
+<Application x:Class="TxtLiveSync.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <!-- 不再用 StartupUri：启动时先判断"是不是已经有窗口在跑"，需要转发就别把窗口建出来 -->
+  <Application.Resources>
+
+    <!-- 调色板：白底 + 冷灰 chrome + 单一蓝色强调 -->
+    <SolidColorBrush x:Key="AccentBrush" Color="#2563EB" />
+    <SolidColorBrush x:Key="TextBrush" Color="#1F2430" />
+    <SolidColorBrush x:Key="MutedBrush" Color="#78808C" />
+    <SolidColorBrush x:Key="LineBrush" Color="#E7EAEE" />
+    <SolidColorBrush x:Key="ChromeBrush" Color="#F7F8FA" />
+    <SolidColorBrush x:Key="HoverBrush" Color="#EDF0F4" />
+    <SolidColorBrush x:Key="PressedBrush" Color="#E2E7EE" />
+    <SolidColorBrush x:Key="OkBrush" Color="#2E7D4F" />
+    <SolidColorBrush x:Key="WarnBrush" Color="#B4690E" />
+    <SolidColorBrush x:Key="DangerBrush" Color="#D1342F" />
+
+    <!-- 图标：12×12 网格的描边几何，Stroke 由外层按钮的 Foreground 决定 -->
+    <PathGeometry x:Key="IconOpen" Figures="M 1.6,9.6 V 3.2 A 0.7,0.7 0 0 1 2.3,2.5 H 4.7 L 6.1,4 H 9.8 A 0.7,0.7 0 0 1 10.5,4.7 V 5.4 M 1.6,9.6 L 3.4,5.7 H 11.5 L 9.7,9.6 Z" />
+    <PathGeometry x:Key="IconSave" Figures="M 2.4,2.6 H 8.4 L 10.4,4.6 V 9.4 H 2.4 Z M 4.4,2.6 V 5.2 H 7.8 M 4.4,9.4 V 6.8 H 8.4 V 9.4" />
+    <PathGeometry x:Key="IconReload" Figures="M 8.8,5.2 A 3.6,3.6 0 1 1 1.6,5.2 A 3.6,3.6 0 1 1 8.8,5.2 M 6,3.6 V 8.2 M 4.2,6.4 L 6,8.2 L 7.8,6.4" />
+    <PathGeometry x:Key="IconFind" Figures="M 8.8,5.2 A 3.6,3.6 0 1 1 1.6,5.2 A 3.6,3.6 0 1 1 8.8,5.2 M 8.2,8.2 L 10.9,10.9" />
+    <PathGeometry x:Key="IconClose" Figures="M 2.6,2.6 L 9.4,9.4 M 9.4,2.6 L 2.6,9.4" />
+    <PathGeometry x:Key="IconChevronUp" Figures="M 2.5,7.6 L 6,4.1 L 9.5,7.6" />
+    <PathGeometry x:Key="IconChevronDown" Figures="M 2.5,4.4 L 6,7.9 L 9.5,4.4" />
+
+    <!-- 工具按钮：无边框、悬停出浅灰底 -->
+    <Style x:Key="ToolButton" TargetType="Button">
+      <Setter Property="Height" Value="26" />
+      <Setter Property="Padding" Value="10,0" />
+      <Setter Property="Margin" Value="0,0,4,0" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="Cursor" Value="Hand" />
+      <Setter Property="SnapsToDevicePixels" Value="True" />
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="b" Background="{TemplateBinding Background}" CornerRadius="6"
+                    Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="b" Property="Background" Value="{StaticResource HoverBrush}" />
+              </Trigger>
+              <Trigger Property="IsPressed" Value="True">
+                <Setter TargetName="b" Property="Background" Value="{StaticResource PressedBrush}" />
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Foreground" Value="#B7BDC6" />
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <!-- 顶栏图标按钮：28×28 方形，只有图形没有文字 -->
+    <Style x:Key="IconButton" TargetType="Button">
+      <Setter Property="Width" Value="30" />
+      <Setter Property="Height" Value="28" />
+      <Setter Property="Margin" Value="1,0" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Foreground" Value="#4C5563" />
+      <Setter Property="Cursor" Value="Hand" />
+      <Setter Property="Focusable" Value="False" />
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="b" Background="{TemplateBinding Background}" CornerRadius="6"
+                    SnapsToDevicePixels="True">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="b" Property="Background" Value="{StaticResource HoverBrush}" />
+                <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+              </Trigger>
+              <Trigger Property="IsPressed" Value="True">
+                <Setter TargetName="b" Property="Background" Value="{StaticResource PressedBrush}" />
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Foreground" Value="#C3C9D2" />
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <!-- 主按钮：空状态里的「打开文件」等唯一主动作 -->
+    <Style x:Key="PrimaryButton" TargetType="Button">
+      <Setter Property="Height" Value="30" />
+      <Setter Property="Padding" Value="18,0" />
+      <Setter Property="Background" Value="{StaticResource AccentBrush}" />
+      <Setter Property="Foreground" Value="#FFFFFF" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="Cursor" Value="Hand" />
+      <Setter Property="SnapsToDevicePixels" Value="True" />
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="b" Background="{TemplateBinding Background}" CornerRadius="6"
+                    Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="b" Property="Background" Value="#1D4FD8" />
+              </Trigger>
+              <Trigger Property="IsPressed" Value="True">
+                <Setter TargetName="b" Property="Background" Value="#1A46BF" />
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <!-- 标签上的关闭按钮：淡淡的 ✕，悬停才明显 -->
+    <Style x:Key="TabCloseButton" TargetType="Button">
+      <Setter Property="Width" Value="16" />
+      <Setter Property="Height" Value="16" />
+      <Setter Property="Margin" Value="6,0,0,0" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Foreground" Value="#9AA2AD" />
+      <Setter Property="Cursor" Value="Hand" />
+      <Setter Property="Focusable" Value="False" />
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="b" Background="{TemplateBinding Background}" CornerRadius="4">
+              <TextBlock Text="✕" FontSize="9" HorizontalAlignment="Center" VerticalAlignment="Center"
+                         Foreground="{TemplateBinding Foreground}" />
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="b" Property="Background" Value="#DFE4EA" />
+                <Setter Property="Foreground" Value="#1F2430" />
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <!-- 查找面板里的输入框：浅底、细边、圆角，聚焦时蓝边 -->
+    <Style x:Key="FindInput" TargetType="TextBox">
+      <Setter Property="Height" Value="26" />
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="Padding" Value="7,0" />
+      <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+      <Setter Property="CaretBrush" Value="{StaticResource TextBrush}" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+      <Setter Property="Background" Value="#F5F6F9" />
+      <Setter Property="BorderBrush" Value="#DCE1E8" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="TextBox">
+            <Border x:Name="b" Background="{TemplateBinding Background}"
+                    BorderBrush="{TemplateBinding BorderBrush}"
+                    BorderThickness="{TemplateBinding BorderThickness}"
+                    CornerRadius="5" SnapsToDevicePixels="True">
+              <!-- 不要再给 PART_ContentHost 加 Margin=Padding：TextBox 内部会自己应用一次 Padding，
+                   叠加后会多出一个缩进，导致输入的文字比占位符往右偏一个 Padding 的距离。 -->
+              <ScrollViewer x:Name="PART_ContentHost" VerticalAlignment="Center" />
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                <Setter TargetName="b" Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                <Setter TargetName="b" Property="Background" Value="#FFFFFF" />
+              </Trigger>
+              <!-- 无匹配：红边浅红底，后声明故优先于聚焦态 -->
+              <Trigger Property="Tag" Value="nomatch">
+                <Setter TargetName="b" Property="BorderBrush" Value="{StaticResource DangerBrush}" />
+                <Setter TargetName="b" Property="Background" Value="#FDF4F4" />
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <!-- 查找面板里的小文字按钮（替换 / 全部） -->
+    <Style x:Key="MiniButton" TargetType="Button">
+      <Setter Property="Height" Value="24" />
+      <Setter Property="Padding" Value="9,0" />
+      <Setter Property="Margin" Value="6,0,0,0" />
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="Background" Value="#EFF2F6" />
+      <Setter Property="Foreground" Value="#3C4453" />
+      <Setter Property="Cursor" Value="Hand" />
+      <Setter Property="Focusable" Value="False" />
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="b" Background="{TemplateBinding Background}" CornerRadius="5"
+                    Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="b" Property="Background" Value="#E1E6ED" />
+              </Trigger>
+              <Trigger Property="IsPressed" Value="True">
+                <Setter TargetName="b" Property="Background" Value="#D3DAE4" />
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <!-- 查找面板里的图标按钮（上一个 / 下一个 / 关闭） -->
+    <Style x:Key="FindIconButton" TargetType="Button">
+      <Setter Property="Width" Value="24" />
+      <Setter Property="Height" Value="24" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Foreground" Value="#4C5563" />
+      <Setter Property="Cursor" Value="Hand" />
+      <Setter Property="Focusable" Value="False" />
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="b" Background="{TemplateBinding Background}" CornerRadius="5">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="b" Property="Background" Value="#E4E9EF" />
+                <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+              </Trigger>
+              <Trigger Property="IsPressed" Value="True">
+                <Setter TargetName="b" Property="Background" Value="#D6DDE6" />
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <!-- Aa：区分大小写开关，激活时浅蓝底 + 蓝字 -->
+    <Style x:Key="FindToggle" TargetType="ToggleButton">
+      <Setter Property="Width" Value="26" />
+      <Setter Property="Height" Value="24" />
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Foreground" Value="#5A6472" />
+      <Setter Property="Cursor" Value="Hand" />
+      <Setter Property="Focusable" Value="False" />
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="ToggleButton">
+            <Border x:Name="b" Background="{TemplateBinding Background}" CornerRadius="5">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="b" Property="Background" Value="#E4E9EF" />
+              </Trigger>
+              <Trigger Property="IsChecked" Value="True">
+                <Setter TargetName="b" Property="Background" Value="#DBE6FD" />
+                <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <!-- 子菜单项：靠左对勾位 + 右对齐快捷键 -->
+    <Style x:Key="MenuSub" TargetType="MenuItem">
+      <Setter Property="Padding" Value="8,6" />
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="MenuItem">
+            <Grid>
+              <Border x:Name="bd" Background="Transparent" CornerRadius="5"
+                      Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
+                <Grid>
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="18" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                  </Grid.ColumnDefinitions>
+                  <TextBlock x:Name="check" Grid.Column="0" Text="✓" FontSize="10" Visibility="Collapsed"
+                             VerticalAlignment="Center" Foreground="{StaticResource AccentBrush}" />
+                  <ContentPresenter Grid.Column="1" ContentSource="Header" RecognizesAccessKey="True"
+                                    VerticalAlignment="Center" />
+                  <TextBlock Grid.Column="2" Margin="20,0,2,0" VerticalAlignment="Center" FontSize="11"
+                             Foreground="#9AA2AD"
+                             Text="{Binding InputGestureText, RelativeSource={RelativeSource TemplatedParent}}" />
+                </Grid>
+              </Border>
+              <Popup x:Name="PART_Popup" Placement="Right" HorizontalOffset="-6" VerticalOffset="-6"
+                     IsOpen="{TemplateBinding IsSubmenuOpen}" AllowsTransparency="True" Focusable="False"
+                     PopupAnimation="Fade">
+                <Border Background="#FFFFFF" BorderBrush="#DDE2E9" BorderThickness="1" CornerRadius="8" Padding="4">
+                  <Border.Effect>
+                    <DropShadowEffect BlurRadius="14" ShadowDepth="3" Opacity="0.14" />
+                  </Border.Effect>
+                  <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Cycle" />
+                </Border>
+              </Popup>
+            </Grid>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsChecked" Value="True">
+                <Setter TargetName="check" Property="Visibility" Value="Visible" />
+              </Trigger>
+              <Trigger Property="IsHighlighted" Value="True">
+                <Setter TargetName="bd" Property="Background" Value="#EDF1F7" />
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Foreground" Value="#B7BDC6" />
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <!-- 一级菜单：扁平文字 + 悬停浅灰圆角，下拉是白卡片 -->
+    <Style x:Key="MenuTop" TargetType="MenuItem">
+      <Setter Property="Padding" Value="9,5" />
+      <Setter Property="Margin" Value="1,0" />
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="Foreground" Value="#3C4453" />
+      <Setter Property="ItemContainerStyle" Value="{StaticResource MenuSub}" />
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="MenuItem">
+            <Grid>
+              <Border x:Name="bd" Background="Transparent" CornerRadius="6"
+                      Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
+                <ContentPresenter ContentSource="Header" RecognizesAccessKey="True" VerticalAlignment="Center" />
+              </Border>
+              <Popup x:Name="PART_Popup" Placement="Bottom" HorizontalOffset="-4" VerticalOffset="2"
+                     IsOpen="{TemplateBinding IsSubmenuOpen}" AllowsTransparency="True" Focusable="False"
+                     PopupAnimation="Fade">
+                <Border Background="#FFFFFF" BorderBrush="#DDE2E9" BorderThickness="1" CornerRadius="8"
+                        Padding="4" MinWidth="180">
+                  <Border.Effect>
+                    <DropShadowEffect BlurRadius="16" ShadowDepth="4" Opacity="0.15" />
+                  </Border.Effect>
+                  <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Cycle" />
+                </Border>
+              </Popup>
+            </Grid>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsHighlighted" Value="True">
+                <Setter TargetName="bd" Property="Background" Value="#EDF1F7" />
+              </Trigger>
+              <Trigger Property="IsSubmenuOpen" Value="True">
+                <Setter TargetName="bd" Property="Background" Value="#EDF1F7" />
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <!-- 菜单分隔线 -->
+    <Style x:Key="{x:Static MenuItem.SeparatorStyleKey}" TargetType="Separator">
+      <Setter Property="Height" Value="1" />
+      <Setter Property="Margin" Value="8,4" />
+      <Setter Property="Background" Value="{StaticResource LineBrush}" />
+    </Style>
+
+  </Application.Resources>
+</Application>

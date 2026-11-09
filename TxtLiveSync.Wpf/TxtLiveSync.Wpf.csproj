@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>TxtLiveSync</AssemblyName>
+    <RootNamespace>TxtLiveSync</RootNamespace>
+    <ApplicationIcon>app.ico</ApplicationIcon>
+    <Version>1.0.0</Version>
+    <AssemblyTitle>TxtLiveSync</AssemblyTitle>
+    <Product>TxtLiveSync — TXT 实时同步编辑器</Product>
+    <DebugType>none</DebugType>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+
+    <!-- 框架依赖发布：exe 只有几百 KB，运行时用系统已装的 .NET Desktop Runtime。
+         RollForward=LatestMajor 让装的是 8/9/10 任一桌面运行时都能启动，不必版本严格对齐。 -->
+    <SelfContained>false</SelfContained>
+    <RollForward>LatestMajor</RollForward>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <!-- WPF 不支持裁剪，别开 PublishTrimmed -->
+    <PublishTrimmed>false</PublishTrimmed>
+    <PublishReadyToRun>false</PublishReadyToRun>
+
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Resource Include="app.ico" />
+  </ItemGroup>
+
+</Project>

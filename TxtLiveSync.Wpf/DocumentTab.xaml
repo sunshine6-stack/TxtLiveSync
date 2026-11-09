@@ -1,0 +1,127 @@
+﻿<UserControl x:Class="TxtLiveSync.DocumentTab"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:TxtLiveSync"
+             Background="#FFFFFF">
+  <!-- 一个标签页 = 一个文件的编辑区。同步引擎、脏标记、查找替换都在 DocumentTab.xaml.cs 里。 -->
+  <Grid>
+    <!-- 查找高亮层：垫在正文下面（跟 VS 一样，高亮是文字的背景色而不是盖在字上的色块），
+         所以编辑区背景必须是透明的，白色由 UserControl 提供。不吃鼠标事件。 -->
+    <local:MatchHighlightOverlay x:Name="HighlightLayer" IsHitTestVisible="False" />
+
+    <TextBox x:Name="Editor" AutomationProperties.AutomationId="Editor"
+             AllowDrop="True"
+             BorderThickness="0" Background="Transparent" Foreground="#1B1F24"
+             Padding="12,10" FontFamily="Consolas, Microsoft YaHei UI"
+             FontSize="14"
+             AcceptsReturn="True" AcceptsTab="True" SpellCheck.IsEnabled="False"
+             VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+             TextWrapping="NoWrap" TextChanged="OnTextChanged"
+             PreviewMouseLeftButtonDown="OnEditorPreviewMouseDown" />
+
+    <!-- 查找 / 替换面板：贴在编辑区右上角，浮在正文之上（同 VS Code） -->
+    <Border x:Name="FindBar" Panel.ZIndex="10" Visibility="Collapsed"
+            HorizontalAlignment="Right" VerticalAlignment="Top"
+            Margin="0,10,24,0" Width="404"
+            Background="#FFFFFF" BorderBrush="#D7DDE5" BorderThickness="1"
+            CornerRadius="9" Padding="10,9">
+      <Border.Effect>
+        <DropShadowEffect BlurRadius="18" ShadowDepth="3" Opacity="0.16" Direction="270" />
+      </Border.Effect>
+
+      <Grid>
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*" />
+          <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+          <RowDefinition Height="Auto" />
+          <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- 查找输入 -->
+        <Grid Grid.Row="0" Grid.Column="0">
+          <TextBox x:Name="FindBox" AutomationProperties.AutomationId="FindBox"
+                   Style="{StaticResource FindInput}"
+                   ToolTip="查找内容（Enter 下一个，Shift+Enter 上一个）"
+                   KeyDown="OnFindKeyDown" TextChanged="OnFindTextChanged" />
+          <TextBlock Text="查找" IsHitTestVisible="False" Margin="10,0,0,0" FontSize="12"
+                     VerticalAlignment="Center" Foreground="#AEB5BF">
+            <TextBlock.Style>
+              <Style TargetType="TextBlock">
+                <Setter Property="Visibility" Value="Collapsed" />
+                <Style.Triggers>
+                  <DataTrigger Binding="{Binding Text, ElementName=FindBox}" Value="">
+                    <Setter Property="Visibility" Value="Visible" />
+                  </DataTrigger>
+                </Style.Triggers>
+              </Style>
+            </TextBlock.Style>
+          </TextBlock>
+        </Grid>
+
+        <!-- 匹配数 + Aa + 上一个 / 下一个 / 关闭 -->
+        <StackPanel Grid.Row="0" Grid.Column="1" Orientation="Horizontal" Margin="8,0,0,0"
+                    VerticalAlignment="Center">
+          <TextBlock x:Name="FindInfo" AutomationProperties.AutomationId="FindInfo" Text=""
+                     MinWidth="46" Margin="0,0,6,0" TextAlignment="Right"
+                     VerticalAlignment="Center" FontSize="11"
+                     Foreground="{StaticResource MutedBrush}" />
+          <ToggleButton x:Name="CaseBox" Style="{StaticResource FindToggle}" Content="Aa"
+                        ToolTip="区分大小写" Click="OnCaseChanged" />
+          <Button Style="{StaticResource FindIconButton}" Margin="4,0,0,0"
+                  AutomationProperties.AutomationId="BtnFindPrev" Click="OnFindPrev" ToolTip="上一个（Shift+Enter）">
+            <Path Data="{StaticResource IconChevronUp}" Fill="Transparent" StrokeThickness="1.4"
+                  Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                  StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" />
+          </Button>
+          <Button Style="{StaticResource FindIconButton}" Margin="1,0,0,0"
+                  AutomationProperties.AutomationId="BtnFindNext" Click="OnFindNext" ToolTip="下一个（Enter）">
+            <Path Data="{StaticResource IconChevronDown}" Fill="Transparent" StrokeThickness="1.4"
+                  Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                  StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" />
+          </Button>
+          <Button Style="{StaticResource FindIconButton}" Margin="3,0,0,0"
+                  AutomationProperties.AutomationId="BtnFindClose" Click="OnFindClose" ToolTip="关闭（Esc）">
+            <Path Data="{StaticResource IconClose}" Fill="Transparent" StrokeThickness="1.4"
+                  Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                  StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" />
+          </Button>
+        </StackPanel>
+
+        <!-- 替换输入 -->
+        <Grid x:Name="ReplaceBoxHost" Grid.Row="1" Grid.Column="0" Margin="0,7,0,0" Visibility="Collapsed">
+          <TextBox x:Name="ReplaceBox" AutomationProperties.AutomationId="ReplaceBox"
+                   Style="{StaticResource FindInput}"
+                   ToolTip="替换为（Enter 替换当前并找下一个）"
+                   KeyDown="OnReplaceKeyDown" />
+          <TextBlock Text="替换为" IsHitTestVisible="False" Margin="10,0,0,0" FontSize="12"
+                     VerticalAlignment="Center" Foreground="#AEB5BF">
+            <TextBlock.Style>
+              <Style TargetType="TextBlock">
+                <Setter Property="Visibility" Value="Collapsed" />
+                <Style.Triggers>
+                  <DataTrigger Binding="{Binding Text, ElementName=ReplaceBox}" Value="">
+                    <Setter Property="Visibility" Value="Visible" />
+                  </DataTrigger>
+                </Style.Triggers>
+              </Style>
+            </TextBlock.Style>
+          </TextBlock>
+        </Grid>
+
+        <!-- 替换动作 -->
+        <StackPanel x:Name="ReplaceGroup" Grid.Row="1" Grid.Column="1" Orientation="Horizontal"
+                    Margin="8,7,0,0" HorizontalAlignment="Right" VerticalAlignment="Center"
+                    Visibility="Collapsed">
+          <Button Style="{StaticResource MiniButton}" Content="替换" Margin="0"
+                  AutomationProperties.AutomationId="BtnReplace" Click="OnReplaceOne"
+                  ToolTip="替换当前这一处（Enter）" />
+          <Button Style="{StaticResource MiniButton}" Content="全部替换"
+                  AutomationProperties.AutomationId="BtnReplaceAll" Click="OnReplaceAll"
+                  ToolTip="替换正文里的全部匹配" />
+        </StackPanel>
+      </Grid>
+    </Border>
+  </Grid>
+</UserControl>
