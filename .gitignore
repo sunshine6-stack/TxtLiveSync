@@ -5,6 +5,9 @@ obj/
 *.user
 *.suo
 
+# 自包含发布（63 MB 单文件，按需构建，不入库；需要分发给无运行时机器时放 GitHub Release）
+dist-wpf-standalone/
+
 # 运行/调试产物
 *.pdb
 *.log
@@ -16,5 +19,6 @@ obj/
 # 本地验收脚本与调试产物（不入库；单元测试在 tests/LogicTests）
 tests/*
 !tests/LogicTests/
+!tests/build_wpf.py
 _p.txt
 _p2.txt

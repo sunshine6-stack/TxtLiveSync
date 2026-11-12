@@ -22,7 +22,8 @@
 
 | 路径 | 说明 |
 |---|---|
-| `dist-wpf\TxtLiveSync.exe` | **主程序，单文件约 290 KB**，已内嵌图标 |
+| `dist-wpf\TxtLiveSync.exe` | **主程序（框架依赖），单文件约 290 KB**，已内嵌图标；要求机器装有 .NET Desktop Runtime |
+| `dist-wpf-standalone\TxtLiveSync.exe` | **主程序（自包含），单文件约 63 MB**；拷贝即用，目标机什么都不用装（不入库，按需构建） |
 | `TxtLiveSync.Wpf\` | 源码（`MainWindow` 外壳 + `DocumentTab` 单个文档页 + `Core\` 4 个类 + `SingleInstance`） |
 | `示例.txt` | 演示文件（UTF-8 / CRLF） |
 | `界面截图.png` | 实际运行截图 |
@@ -33,8 +34,9 @@
 
 - **.NET 8 + WPF**，`net8.0-windows`，单文件发布（框架依赖）
 - **零第三方 NuGet 包**，只用 BCL（`System.Text.Encoding`、`System.Text.Json`）
-- 需要目标机器装了 **.NET Desktop Runtime 8 / 9 / 10 任一版本**（`RollForward=LatestMajor`，不要求版本严格对齐）。本机已装 8.0.33 / 9.0.22 / 10.0.11，直接双击即可，不需要装任何东西
-- 没有被要求装运行时的场景仍然存在：完全没装 .NET 的机器会提示安装（这是框架依赖模式的固有前提）。那种机器改用自包含发布即可免安装：`-p:SelfContained=true`，代价是体积 63 MB
+- 默认发布形态是**框架依赖**：体积小（290 KB），目标机器装 .NET Desktop Runtime **8 / 9 / 10 任一版本**即可（`RollForward=LatestMajor`，不要求版本严格对齐）。本机已装 8.0.33 / 9.0.22 / 10.0.11，直接双击即可
+- 需要给**完全没装 .NET 的机器**时，用自包含形态：`python tests\build_wpf.py --standalone`，产物在 `dist-wpf-standalone\`，单文件 63 MB，拷贝即用、零依赖，代价是体积和首次启动稍慢（要解压原生库）
+- 两种形态功能完全一致，只是运行时的打包方式不同
 - 轮询间隔 400 ms，常驻内存约 60 MB
 
 源码体量对比：v1（Python/tkinter）约 900 行，v2（WPF）约 1000 行 —— 因为 WPF 的布局/状态栏/图标都不用手搓，多出来的主要是多标签与每个标签独立的同步状态。
@@ -120,16 +122,25 @@ RESULT=PASS
 
 ## 编译
 
-两步（XAML 改动必须强制重编译，否则可能拿到旧产物）：
+```bat
+python tests\build_wpf.py                :: 框架依赖 → dist-wpf\        （约 290 KB，默认）
+python tests\build_wpf.py --standalone   :: 自包含   → dist-wpf-standalone\（约 63 MB）
+python tests\build_wpf.py --both         :: 两个都出
+```
+
+脚本内部先 `build --no-incremental` 再 `publish --no-build` —— XAML 改动偶尔不触发重编译，必须强制，否则可能拿到旧产物。想直接用 dotnet：
 
 ```
 dotnet build   TxtLiveSync.Wpf\TxtLiveSync.Wpf.csproj -c Release -r win-x64 --self-contained false --no-incremental
 dotnet publish TxtLiveSync.Wpf\TxtLiveSync.Wpf.csproj -c Release -r win-x64 --self-contained false --no-build -p:PublishSingleFile=true -o dist-wpf
+
+:: 自包含版本
+dotnet publish TxtLiveSync.Wpf\TxtLiveSync.Wpf.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o dist-wpf-standalone
 ```
 
 ## 快捷键
 
-`Ctrl+O` 打开（可多选） · `Ctrl+S` 保存 · `Ctrl+Shift+S` 另存为 · `F5` 从磁盘重新加载 · `Ctrl+F` 查找 · `Ctrl+H` 替换 · `F3` 查找下一个 · `Esc` 关闭查找面板 · `Ctrl+W` 关闭当前标签 · `Ctrl+Tab` / `Ctrl+Shift+Tab` 切换标签 · `Ctrl+=` / `Ctrl+-` 字号
+`Ctrl+O` 打开（可多选） · `Ctrl+S` 保存 · `Ctrl+Shift+S` 另存为 · `F5` 从磁盘重新加载 · `Ctrl+F` 查找 · `Ctrl+H` 替换 · `F3` 查找下一个 · `Esc` 关闭查找面板 · `Ctrl+W` 关闭当前标签 · `Ctrl+Tab` / `Ctrl+Shift+Tab` 切换标签 · `Ctrl+=` / `Ctrl+-` 字号 · `End` 跳到行尾 · `Ctrl+End` 跳到全文最后（加 `Shift` 为扩选）
 
 ## 配置位置
 
