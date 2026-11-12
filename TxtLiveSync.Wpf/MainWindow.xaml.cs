@@ -408,6 +408,10 @@ public partial class MainWindow : Window
         else doc.FindNextPublic(!((Keyboard.Modifiers & ModifierKeys.Shift) != 0));
     }
 
+    private void OnJumpLineEnd(object sender, RoutedEventArgs e) => Active?.JumpToLineEnd();
+
+    private void OnJumpDocumentEnd(object sender, RoutedEventArgs e) => Active?.JumpToDocumentEnd();
+
     private void OnExit(object sender, RoutedEventArgs e) => Close();
 
     // ---------------------------------------------------------------- 关闭窗口
@@ -550,7 +554,8 @@ public partial class MainWindow : Window
             "TxtLiveSync\n\n轻量级 TXT 实时同步查看 / 编辑器（多标签）\n" +
             $".NET {Environment.Version} · WPF\n轮询间隔 {PollMs} ms\n\n" +
             "默认策略：外部修改时静默以磁盘内容为准。\n\n" +
-            "Ctrl+F 查找 · Ctrl+H 替换 · Ctrl+W 关闭标签 · Ctrl+Tab 切换标签",
+            "Ctrl+F 查找 · Ctrl+H 替换 · Ctrl+W 关闭标签 · Ctrl+Tab 切换标签\n" +
+            "End 跳到行尾 · Ctrl+End 跳到全文最后",
             "关于",
             MessageBoxButton.OK,
             MessageBoxImage.Information);

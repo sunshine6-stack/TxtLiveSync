@@ -153,6 +153,9 @@
             <MenuItem Header="查找…" Click="OnFind" InputGestureText="Ctrl+F" />
             <MenuItem Header="替换…" Click="OnReplace" InputGestureText="Ctrl+H" />
             <MenuItem Header="查找下一个" Click="OnFindNext" InputGestureText="F3" />
+            <Separator />
+            <MenuItem Header="跳到当前行行尾" Click="OnJumpLineEnd" InputGestureText="End" />
+            <MenuItem Header="跳到全文最后" Click="OnJumpDocumentEnd" InputGestureText="Ctrl+End" />
           </MenuItem>
 
           <MenuItem Header="视图">

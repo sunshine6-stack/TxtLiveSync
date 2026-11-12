@@ -89,6 +89,106 @@ public partial class DocumentTab : UserControl
 
     public void FocusEditor() => Editor.Focus();
 
+    // ---------------------------------------------------------------- 跳到行尾 / 文末
+
+    /// <summary>
+    /// End：光标到当前行的行尾（换行符之前）。
+    /// Ctrl+End：光标到全文最后（最后一行之后，也就是文档末尾）。
+    /// Shift 一起按时改为"选中到该位置"，跟系统习惯一致。
+    ///
+    /// 这两个组合 WPF 的 TextBox 本来就有，但仍然自己接管：
+    /// 一是行尾要去掉 \r\n（内置行为在 CRLF 文件里会把光标停到换行符后面，
+    /// 再按一下 End 才到真正的行尾）；二是长行不换行时要把光标横向滚进可视区，
+    /// 内置行为在 NoWrap + 横向滚动条的情况下不总能滚到位。
+    /// </summary>
+    private void OnEditorPreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.End) return;
+
+        var mods = Keyboard.Modifiers;
+        if ((mods & ModifierKeys.Alt) != 0) return;             // Alt 组合不抢
+
+        MoveCaretToEnd((mods & ModifierKeys.Control) != 0, (mods & ModifierKeys.Shift) != 0);
+        e.Handled = true;
+    }
+
+    /// <summary>菜单/按钮调用：跳到当前行行尾。</summary>
+    public void JumpToLineEnd()
+    {
+        Editor.Focus();
+        MoveCaretToEnd(toDocumentEnd: false, extend: false);
+    }
+
+    /// <summary>菜单/按钮调用：跳到全文最后。</summary>
+    public void JumpToDocumentEnd()
+    {
+        Editor.Focus();
+        MoveCaretToEnd(toDocumentEnd: true, extend: false);
+    }
+
+    private void MoveCaretToEnd(bool toDocumentEnd, bool extend)
+    {
+        var text = Editor.Text;
+        var target = toDocumentEnd ? text.Length : CurrentLineEnd(text);
+        target = Math.Clamp(target, 0, text.Length);
+
+        if (extend)
+        {
+            // 以原选区的起点为锚点，向目标位置扩选
+            var anchor = Editor.SelectionStart;
+            if (target >= anchor) Editor.Select(anchor, target - anchor);
+            else Editor.Select(target, anchor - target);
+        }
+        else
+        {
+            Editor.CaretIndex = target;      // 赋值会顺手清掉选区
+        }
+
+        EnsureCaretVisible();
+    }
+
+    /// <summary>光标所在行的行尾位置：不含行尾的 \r\n。</summary>
+    private int CurrentLineEnd(string text)
+    {
+        var idx = Math.Clamp(Editor.CaretIndex, 0, text.Length);
+        var line = Editor.GetLineIndexFromCharacterIndex(idx);
+        if (line < 0) return idx;
+
+        var start = Editor.GetCharacterIndexFromLineIndex(line);
+        if (start < 0) return idx;
+
+        var end = start + Editor.GetLineLength(line);
+        if (end > text.Length) end = text.Length;
+        while (end > start && (text[end - 1] == '\r' || text[end - 1] == '\n')) end--;
+        return end;
+    }
+
+    /// <summary>
+    /// 把刚移动到的光标滚进可视区。纵向用 ScrollToLine（可靠）；
+    /// 横向没有现成 API，按光标矩形和可视区的差值补一次偏移。
+    /// </summary>
+    private void EnsureCaretVisible()
+    {
+        Editor.UpdateLayout();
+
+        var line = Editor.GetLineIndexFromCharacterIndex(Editor.CaretIndex);
+        if (line >= 0) Editor.ScrollToLine(line);
+        Editor.UpdateLayout();
+
+        var caret = Editor.GetRectFromCharacterIndex(Editor.CaretIndex, false);
+        if (caret.IsEmpty) return;
+
+        var view = TextViewportRect();
+        if (view.IsEmpty) return;
+
+        const double pad = 24;
+        if (caret.Right > view.Right)
+            Editor.ScrollToHorizontalOffset(Editor.HorizontalOffset + (caret.Right - view.Right) + pad);
+        else if (caret.Left < view.Left)
+            Editor.ScrollToHorizontalOffset(Math.Max(0, Editor.HorizontalOffset - (view.Left - caret.Left) - pad));
+    }
+
+
     // ---------------------------------------------------------------- 载入
 
     /// <summary>把磁盘内容装进本页，并把它设为同步基准（清脏标记）。</summary>

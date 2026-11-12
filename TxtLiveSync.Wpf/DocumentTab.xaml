@@ -17,6 +17,7 @@
              AcceptsReturn="True" AcceptsTab="True" SpellCheck.IsEnabled="False"
              VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
              TextWrapping="NoWrap" TextChanged="OnTextChanged"
+             PreviewKeyDown="OnEditorPreviewKeyDown"
              PreviewMouseLeftButtonDown="OnEditorPreviewMouseDown" />
 
     <!-- 查找 / 替换面板：贴在编辑区右上角，浮在正文之上（同 VS Code） -->
