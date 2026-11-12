@@ -15,8 +15,11 @@ public partial class App : Application
 
     protected override void OnStartup(StartupEventArgs e)
     {
-        // 中文路径/GBK 读写需要注册代码页提供程序
+        // .NET (Core) 里 GBK/GB18030 不在默认编码表里，要注册代码页提供程序；
+        // .NET Framework 自带这些代码页，没有 CodePagesEncodingProvider 这个类型。
+#if !NETFRAMEWORK
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+#endif
 
         DispatcherUnhandledException += OnDispatcherException;
         AppDomain.CurrentDomain.UnhandledException += (_, args) =>
@@ -45,7 +48,7 @@ public partial class App : Application
             return false;                        // 我是第一个，继续走正常启动
 
         var files = args
-            .Where(a => !string.IsNullOrWhiteSpace(a) && !a.StartsWith('-'))
+            .Where(a => !string.IsNullOrWhiteSpace(a) && !a.StartsWith("-", StringComparison.Ordinal))
             .Select(a =>
             {
                 try { return Path.GetFullPath(a.Trim('"')); }

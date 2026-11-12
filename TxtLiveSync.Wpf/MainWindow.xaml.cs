@@ -23,10 +23,10 @@ public partial class MainWindow : Window
     /// <summary>标签头里的可视元素，脏标记变化时只改这几个。</summary>
     private sealed class TabChrome
     {
-        public required TabItem Item { get; init; }
-        public required TextBlock Name { get; init; }
-        public required Ellipse Dot { get; init; }
-        public required Button Close { get; init; }
+        public TabItem Item { get; init; } = null!;
+        public TextBlock Name { get; init; } = null!;
+        public Ellipse Dot { get; init; } = null!;
+        public Button Close { get; init; } = null!;
     }
 
     private readonly AppConfig _cfg = AppConfig.Load();
@@ -59,7 +59,7 @@ public partial class MainWindow : Window
         ApplySettings();
 
         var args = Environment.GetCommandLineArgs().Skip(1)
-            .Where(a => !a.StartsWith('-'))
+            .Where(a => !a.StartsWith("-", StringComparison.Ordinal))
             .Where(a => !string.IsNullOrWhiteSpace(a) && System.IO.File.Exists(a))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
@@ -542,7 +542,7 @@ public partial class MainWindow : Window
 
     private void ChangeFont(int delta)
     {
-        var size = Math.Clamp((Active?.TextBoxControl.FontSize ?? _cfg.FontSize) + delta, 9, 32);
+        var size = Compat.Clamp((Active?.TextBoxControl.FontSize ?? _cfg.FontSize) + delta, 9, 32);
         foreach (var doc in Docs) doc.ApplySettings(WrapItem.IsChecked, size);
         _cfg.FontSize = size;
     }

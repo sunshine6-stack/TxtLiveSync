@@ -2,13 +2,14 @@
 
 轻量级 Windows 桌面工具：打开 `.txt`（可多标签），外部改了自动同步，也能直接编辑保存。
 
-**当前版本：WPF（.NET 8）** — 双击 exe 即开，**没有控制台窗口**，任务栏是独立图标。
+**当前版本：WPF（.NET Framework 4.8）** — 双击 exe 即开，**没有控制台窗口**，任务栏是独立图标。
+.NET Framework 4.8 是 Windows 10 1903+ / Windows 11 的**系统自带组件**，用户不需要安装任何运行时。
 
 ## 怎么用
 
 ```
-双击  dist-wpf\TxtLiveSync.exe           ← 就这一步
-或    dist-wpf\TxtLiveSync.exe a.txt b.txt  ← 每个文件开一个标签
+双击  dist-fx\TxtLiveSync.exe            ← 就这一步
+或    dist-fx\TxtLiveSync.exe a.txt b.txt  ← 每个文件开一个标签
 或    把 txt 拖进窗口                      ← 新开一个标签，已有则切过去
 ```
 
@@ -22,21 +23,22 @@
 
 | 路径 | 说明 |
 |---|---|
-| `dist-wpf\TxtLiveSync.exe` | **主程序（框架依赖），单文件约 290 KB**，已内嵌图标；要求机器装有 .NET Desktop Runtime |
-| `dist-wpf-standalone\TxtLiveSync.exe` | **主程序（自包含），单文件约 63 MB**；拷贝即用，目标机什么都不用装（不入库，按需构建） |
-| `TxtLiveSync.Wpf\` | 源码（`MainWindow` 外壳 + `DocumentTab` 单个文档页 + `Core\` 4 个类 + `SingleInstance`） |
+| `dist-fx\TxtLiveSync.exe` | **主程序（.NET Framework 4.8），约 130 KB**，已内嵌图标；Win10 1903+ / Win11 自带运行时，拷过去双击就能用 |
+| `dist-wpf\TxtLiveSync.exe` | 备选：.NET 8 框架依赖，单文件约 290 KB；要求装有 .NET Desktop Runtime 8/9/10 |
+| `dist-wpf-standalone\TxtLiveSync.exe` | 备选：.NET 8 自包含，单文件约 63 MB；什么都不用装（不入库，按需构建） |
+| `TxtLiveSync.Wpf\` | 源码（`MainWindow` 外壳 + `DocumentTab` 单个文档页 + `Core\` 兼容层与同步引擎 + `SingleInstance`） |
 | `示例.txt` | 演示文件（UTF-8 / CRLF） |
 | `界面截图.png` | 实际运行截图 |
-| `tests\LogicTests\` | 逻辑单元测试（C#，80 项断言，零依赖） |
+| `tests\LogicTests\` | 逻辑单元测试（C#，84 项断言，零依赖） |
 | `v1-python\` | 第一版 Python 实现，仅作备份，日常工作不用它 |
 
 ## 技术栈与依赖
 
-- **.NET 8 + WPF**，`net8.0-windows`，单文件发布（框架依赖）
-- **零第三方 NuGet 包**，只用 BCL（`System.Text.Encoding`、`System.Text.Json`）
-- 默认发布形态是**框架依赖**：体积小（290 KB），目标机器装 .NET Desktop Runtime **8 / 9 / 10 任一版本**即可（`RollForward=LatestMajor`，不要求版本严格对齐）。本机已装 8.0.33 / 9.0.22 / 10.0.11，直接双击即可
-- 需要给**完全没装 .NET 的机器**时，用自包含形态：`python tests\build_wpf.py --standalone`，产物在 `dist-wpf-standalone\`，单文件 63 MB，拷贝即用、零依赖，代价是体积和首次启动稍慢（要解压原生库）
-- 两种形态功能完全一致，只是运行时的打包方式不同
+- **.NET Framework 4.8 + WPF**（主目标，`net48`）。4.8 随 Windows 10 1903+ / Windows 11 一起分发，**目标机器无需安装任何运行时**
+- 同一份源码多目标编译：`net48` 与 `net8.0-windows`（备选），两代都有的 API 之外的地方由 `Core\Compat.cs` 补齐
+- **零第三方 NuGet 包**，只用 BCL。配置的 JSON 读写用自带的 `Core\JsonLite.cs`（`System.Text.Json` 在 4.8 里没有，走 NuGet 会让分发变成 exe + 一堆 dll）；旧版 `System.Text.Json` 写的配置文件照样能读
+- .NET Framework 版产物是**单个 exe + 一个 exe.config**，无需安装、无需写注册表，删掉即卸载
+- 备选的 .NET 8 版：框架依赖 290 KB（装 Runtime 8/9/10 任一可跑），自包含 63 MB（零依赖）
 - 轮询间隔 400 ms，常驻内存约 60 MB
 
 源码体量对比：v1（Python/tkinter）约 900 行，v2（WPF）约 1000 行 —— 因为 WPF 的布局/状态栏/图标都不用手搓，多出来的主要是多标签与每个标签独立的同步状态。
@@ -123,19 +125,22 @@ RESULT=PASS
 ## 编译
 
 ```bat
-python tests\build_wpf.py                :: 框架依赖 → dist-wpf\        （约 290 KB，默认）
-python tests\build_wpf.py --standalone   :: 自包含   → dist-wpf-standalone\（约 63 MB）
-python tests\build_wpf.py --both         :: 两个都出
+python tests\build_wpf.py                :: .NET Framework 4.8 → dist-fx\            （默认，约 130 KB）
+python tests\build_wpf.py --net8         :: .NET 8 框架依赖    → dist-wpf\            （约 290 KB）
+python tests\build_wpf.py --standalone   :: .NET 8 自包含      → dist-wpf-standalone\ （约 63 MB）
+python tests\build_wpf.py --all          :: 三个都出
 ```
 
 脚本内部先 `build --no-incremental` 再 `publish --no-build` —— XAML 改动偶尔不触发重编译，必须强制，否则可能拿到旧产物。想直接用 dotnet：
 
 ```
-dotnet build   TxtLiveSync.Wpf\TxtLiveSync.Wpf.csproj -c Release -r win-x64 --self-contained false --no-incremental
-dotnet publish TxtLiveSync.Wpf\TxtLiveSync.Wpf.csproj -c Release -r win-x64 --self-contained false --no-build -p:PublishSingleFile=true -o dist-wpf
+:: .NET Framework 4.8（主产物）
+dotnet build   TxtLiveSync.Wpf\TxtLiveSync.Wpf.csproj -c Release -f net48 --no-incremental
+dotnet publish TxtLiveSync.Wpf\TxtLiveSync.Wpf.csproj -c Release -f net48 --no-build -o dist-fx
 
-:: 自包含版本
-dotnet publish TxtLiveSync.Wpf\TxtLiveSync.Wpf.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o dist-wpf-standalone
+:: .NET 8
+dotnet build   TxtLiveSync.Wpf\TxtLiveSync.Wpf.csproj -c Release -f net8.0-windows -r win-x64 --self-contained false --no-incremental
+dotnet publish TxtLiveSync.Wpf\TxtLiveSync.Wpf.csproj -c Release -f net8.0-windows -r win-x64 --self-contained false --no-build -p:PublishSingleFile=true -o dist-wpf
 ```
 
 ## 快捷键

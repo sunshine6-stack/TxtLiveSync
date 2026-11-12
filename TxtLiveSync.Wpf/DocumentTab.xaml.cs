@@ -54,7 +54,7 @@ public partial class DocumentTab : UserControl
     {
         get
         {
-            var idx = Math.Clamp(Editor.CaretIndex, 0, Editor.Text.Length);
+            var idx = Compat.Clamp(Editor.CaretIndex, 0, Editor.Text.Length);
             var line = Editor.GetLineIndexFromCharacterIndex(idx);
             if (line < 0) return (1, 1);
 
@@ -84,7 +84,7 @@ public partial class DocumentTab : UserControl
     public void ApplySettings(bool wordWrap, double fontSize)
     {
         Editor.TextWrapping = wordWrap ? TextWrapping.Wrap : TextWrapping.NoWrap;
-        Editor.FontSize = Math.Clamp(fontSize, 9, 32);
+        Editor.FontSize = Compat.Clamp(fontSize, 9, 32);
     }
 
     public void FocusEditor() => Editor.Focus();
@@ -130,7 +130,7 @@ public partial class DocumentTab : UserControl
     {
         var text = Editor.Text;
         var target = toDocumentEnd ? text.Length : CurrentLineEnd(text);
-        target = Math.Clamp(target, 0, text.Length);
+        target = Compat.Clamp(target, 0, text.Length);
 
         if (extend)
         {
@@ -150,7 +150,7 @@ public partial class DocumentTab : UserControl
     /// <summary>光标所在行的行尾位置：不含行尾的 \r\n。</summary>
     private int CurrentLineEnd(string text)
     {
-        var idx = Math.Clamp(Editor.CaretIndex, 0, text.Length);
+        var idx = Compat.Clamp(Editor.CaretIndex, 0, text.Length);
         var line = Editor.GetLineIndexFromCharacterIndex(idx);
         if (line < 0) return idx;
 
@@ -361,7 +361,8 @@ public partial class DocumentTab : UserControl
 
         // 有单词选中就带进查找框，省得手打
         var sel = Editor.SelectedText;
-        if (!string.IsNullOrEmpty(sel) && sel.Length <= 120 && !sel.Contains('\n') && !sel.Contains('\r'))
+        if (!string.IsNullOrEmpty(sel) && sel.Length <= 120
+            && !Compat.HasChar(sel, '\n') && !Compat.HasChar(sel, '\r'))
             FindBox.Text = sel;
 
         FindBox.Focus();
@@ -521,7 +522,7 @@ public partial class DocumentTab : UserControl
             count = CountMatches(hay, needle, StringComparison.Ordinal).Total;
             if (count == 0) { SetFindInfo("无结果", true); RefreshHighlights(); return; }
             _suppressText = true;
-            Editor.Text = hay.Replace(needle, ReplaceBox.Text, StringComparison.Ordinal);
+            Editor.Text = Compat.Replace(hay, needle, ReplaceBox.Text, StringComparison.Ordinal);
             _suppressText = false;
         }
         else

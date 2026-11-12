@@ -1,15 +1,14 @@
-"""构建 WPF 版 exe（PowerShell 工具拦 dotnet，故经 Python 调用）。
+"""构建 TxtLiveSync（PowerShell 工具拦 dotnet，故经 Python 调用）。
 
-两种发布形态：
-
-  python tests/build_wpf.py                 框架依赖（默认）：dist-wpf\\TxtLiveSync.exe，约 300 KB
-                                            需要目标机器装 .NET Desktop Runtime 8/9/10（RollForward=LatestMajor）
-  python tests/build_wpf.py --standalone    自包含：dist-wpf-standalone\\TxtLiveSync.exe，约 60 MB
-                                            目标机器什么都不用装，拷贝即用
-  python tests/build_wpf.py --both          两个都出
+  python tests/build_wpf.py               .NET Framework 4.8 → dist-fx\\TxtLiveSync.exe   （默认）
+                                          产物约 200 KB；Win10 1903+ / Win11 自带 4.8，用户不用装运行时
+  python tests/build_wpf.py --net8        .NET 8（框架依赖） → dist-wpf\\TxtLiveSync.exe
+                                          需要目标机装 .NET Desktop Runtime 8/9/10
+  python tests/build_wpf.py --standalone  .NET 8（自包含）   → dist-wpf-standalone\\TxtLiveSync.exe
+                                          约 63 MB，什么都不用装
+  python tests/build_wpf.py --all         上面三个都出
 
 用 --no-incremental 强制重编译：XAML 改动偶尔不触发重编，产物字节数不变会让人误判。
-不再手工删 bin/obj —— 安全删除策略会拦住大目录的 rmtree，交给 msbuild 自己处理。
 """
 import pathlib
 import subprocess
@@ -17,9 +16,13 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 PROJ = ROOT / "TxtLiveSync.Wpf" / "TxtLiveSync.Wpf.csproj"
-OUT_FW = ROOT / "dist-wpf"
-OUT_SC = ROOT / "dist-wpf-standalone"
 LOG = pathlib.Path(__file__).resolve().parent / "build_wpf.txt"
+
+TARGETS = {
+    "fx": (ROOT / "dist-fx", "net48"),
+    "net8": (ROOT / "dist-wpf", "net8.0-windows"),
+    "standalone": (ROOT / "dist-wpf-standalone", "net8.0-windows"),
+}
 
 lines = []
 
@@ -33,75 +36,90 @@ def run(args):
     return r.returncode
 
 
-def report(title, folder):
-    if not folder.exists():
-        lines.append(f"{title}: 目录不存在 {folder}")
+def build(kind):
+    out_dir, tfm = TARGETS[kind]
+
+    if kind == "fx":
+        # .NET Framework：没有单文件/自包含的概念，产物就是 exe（+ 可选的 exe.config）。
+        # publish 不认 --no-incremental，所以先 build 再 publish --no-build，和 net8 那条路一致。
+        code = run([
+            "dotnet", "build", str(PROJ),
+            "-c", "Release", "-f", tfm,
+            "--no-incremental",
+        ])
+        if code != 0:
+            return code
+        return run([
+            "dotnet", "publish", str(PROJ),
+            "-c", "Release", "-f", tfm,
+            "--no-build",
+            "-o", str(out_dir),
+        ])
+
+    if kind == "net8":
+        code = run([
+            "dotnet", "build", str(PROJ),
+            "-c", "Release", "-f", tfm, "-r", "win-x64",
+            "--self-contained", "false", "--no-incremental",
+        ])
+        if code != 0:
+            return code
+        return run([
+            "dotnet", "publish", str(PROJ),
+            "-c", "Release", "-f", tfm, "-r", "win-x64",
+            "--self-contained", "false", "--no-build",
+            "-p:PublishSingleFile=true", "-p:DebugType=none",
+            "-o", str(out_dir),
+        ])
+
+    return run([
+        "dotnet", "publish", str(PROJ),
+        "-c", "Release", "-f", tfm, "-r", "win-x64",
+        "--self-contained", "true",
+        "-p:PublishSingleFile=true", "-p:DebugType=none",
+        "-p:EnableCompressionInSingleFile=true",
+        "-o", str(out_dir),
+    ])
+
+
+def report(kind):
+    out_dir, _ = TARGETS[kind]
+    if not out_dir.exists():
+        lines.append(f"{kind}: 目录不存在 {out_dir}")
         return None
-    exes = sorted(folder.glob("*.exe"))
-    lines.append(f"{title} output:")
-    for p in sorted(folder.iterdir()):
+    exes = sorted(out_dir.glob("*.exe"))
+    lines.append(f"{kind} output:")
+    for p in sorted(out_dir.iterdir()):
         lines.append(f"  {p.name}  {p.stat().st_size} B")
     return str(exes[0]) if exes else None
 
 
-def build_framework():
-    code = run([
-        "dotnet", "build", str(PROJ),
-        "-c", "Release", "-r", "win-x64",
-        "--self-contained", "false",
-        "--no-incremental",
-    ])
-    if code == 0:
-        code = run([
-            "dotnet", "publish", str(PROJ),
-            "-c", "Release", "-r", "win-x64",
-            "--self-contained", "false",
-            "--no-build",
-            "-p:PublishSingleFile=true",
-            "-p:DebugType=none",
-            "-o", str(OUT_FW),
-        ])
-    return code
-
-
-def build_standalone():
-    code = run([
-        "dotnet", "publish", str(PROJ),
-        "-c", "Release", "-r", "win-x64",
-        "--self-contained", "true",
-        "-p:PublishSingleFile=true",
-        "-p:DebugType=none",
-        "-p:EnableCompressionInSingleFile=true",
-        "-o", str(OUT_SC),
-    ])
-    return code
-
-
-mode = "framework"
+requested = []
 for arg in sys.argv[1:]:
-    if arg in ("--standalone", "--self-contained"):
-        mode = "standalone"
-    elif arg in ("--both", "--all"):
-        mode = "both"
+    if arg in ("--fx", "--net48", "--framework"):
+        requested.append("fx")
+    elif arg in ("--net8", "--wpf"):
+        requested.append("net8")
+    elif arg in ("--standalone", "--self-contained"):
+        requested.append("standalone")
+    elif arg in ("--all", "--both"):
+        requested += ["fx", "net8", "standalone"]
+
+if not requested:
+    requested = ["fx"]
 
 code = 0
-exes = []
+built = []
+for kind in dict.fromkeys(requested):
+    code = build(kind)
+    if code != 0:
+        lines.append(f"!!! {kind} 构建失败，停止")
+        break
+    path = report(kind)
+    if path:
+        built.append((kind, path))
 
-if mode in ("framework", "both"):
-    code = build_framework()
-    if code == 0:
-        e = report("framework-dependent", OUT_FW)
-        if e:
-            exes.append(("framework", e))
-
-if code == 0 and mode in ("standalone", "both"):
-    code = build_standalone()
-    if code == 0:
-        e = report("self-contained", OUT_SC)
-        if e:
-            exes.append(("standalone", e))
-
-for kind, path in exes:
+for kind, path in built:
     lines.append(f"EXE[{kind}]={path}")
 
 lines.append("RESULT=" + ("BUILD_OK" if code == 0 else "BUILD_FAILED"))

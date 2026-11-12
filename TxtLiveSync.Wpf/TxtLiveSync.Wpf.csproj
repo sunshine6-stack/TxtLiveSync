@@ -2,10 +2,14 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net8.0-windows</TargetFramework>
+
+    <!-- 主目标是 .NET Framework 4.8：Win10 1903+ / Win11 上它是系统组件，用户不用装任何运行时。
+         .NET 8 目标保留，给需要单文件/较新运行时的场合。
+         代码必须两边都能编 —— 所以只用两代都有的 API（缺的用 Core\Compat.cs 补）。 -->
+    <TargetFrameworks>net48;net8.0-windows</TargetFrameworks>
     <UseWPF>true</UseWPF>
     <Nullable>enable</Nullable>
-    <LangVersion>latest</LangVersion>
+    <LangVersion>10.0</LangVersion>
     <AssemblyName>TxtLiveSync</AssemblyName>
     <RootNamespace>TxtLiveSync</RootNamespace>
     <ApplicationIcon>app.ico</ApplicationIcon>
@@ -14,19 +18,24 @@
     <Product>TxtLiveSync — TXT 实时同步编辑器</Product>
     <DebugType>none</DebugType>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
-    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <PublishTrimmed>false</PublishTrimmed>   <!-- WPF 不支持裁剪，别开 -->
+  </PropertyGroup>
 
-    <!-- 框架依赖发布：exe 只有几百 KB，运行时用系统已装的 .NET Desktop Runtime。
-         RollForward=LatestMajor 让装的是 8/9/10 任一桌面运行时都能启动，不必版本严格对齐。 -->
+  <!-- .NET Framework 4.8：产物就是单个 exe（外加可选的 exe.config），没有单文件/自包含概念 -->
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net48'">
+    <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
+    <GenerateBindingRedirectsOutputType>true</GenerateBindingRedirectsOutputType>
+  </PropertyGroup>
+
+  <!-- .NET 8：单文件、框架依赖；RollForward 让装 8/9/10 任一桌面运行时都能启动 -->
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net8.0-windows'">
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <SelfContained>false</SelfContained>
     <RollForward>LatestMajor</RollForward>
     <PublishSingleFile>true</PublishSingleFile>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
-    <!-- WPF 不支持裁剪，别开 PublishTrimmed -->
-    <PublishTrimmed>false</PublishTrimmed>
     <PublishReadyToRun>false</PublishReadyToRun>
-
-    <EnableWindowsTargeting>true</EnableWindowsTargeting>
   </PropertyGroup>
 
   <ItemGroup>

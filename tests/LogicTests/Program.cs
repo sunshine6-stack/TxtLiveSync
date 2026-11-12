@@ -429,6 +429,19 @@ internal static class Program
             File.WriteAllText(path, "{ 这不是 JSON");
             var broken = AppConfig.Load();
             Check("配置损坏：回退默认值而不崩溃", broken is not null && !broken.ConfirmOnExternalChange);
+
+            // 兼容旧文件：以前是 System.Text.Json 写的（PascalCase、null、数组、\\ 转义）
+            File.WriteAllText(path,
+                "{\n  \"ConfirmOnExternalChange\": false,\n  \"SingleInstance\": false,\n" +
+                "  \"LastPath\": \"C:\\\\用户\\\\a.txt\",\n  \"OpenPaths\": [\n    \"C:\\\\用户\\\\a.txt\",\n    \"D:\\\\b.txt\"\n  ],\n" +
+                "  \"ActivePath\": null,\n  \"Left\": null,\n  \"Top\": 60,\n  \"Width\": 1000,\n  \"Height\": 680,\n" +
+                "  \"Maximized\": false,\n  \"WordWrap\": true,\n  \"FontSize\": 15\n}");
+            var legacy = AppConfig.Load();
+            Check("兼容旧格式：布尔与数字", !legacy.ConfirmOnExternalChange && !legacy.SingleInstance && legacy.WordWrap);
+            Check("兼容旧格式：反斜杠转义路径", legacy.LastPath == @"C:\用户\a.txt", legacy.LastPath);
+            Check("兼容旧格式：数组", legacy.OpenPaths is { Count: 2 } && legacy.OpenPaths[1] == @"D:\b.txt",
+                legacy.OpenPaths is null ? "null" : string.Join("|", legacy.OpenPaths));
+            Check("兼容旧格式：null 字段", legacy.ActivePath is null && legacy.Left is null && legacy.Top == 60);
         }
         finally
         {

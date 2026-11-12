@@ -86,13 +86,13 @@ public sealed class TextFile
     {
         // 1) BOM 优先
         if (bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF)
-            return new Decoded(DecodeBody(bytes, 3, Utf8NoBom), Utf8NoBom, bytes[..3], "UTF-8 BOM");
+            return new Decoded(DecodeBody(bytes, 3, Utf8NoBom), Utf8NoBom, Compat.Take(bytes, 3), "UTF-8 BOM");
 
         if (bytes.Length >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE)
-            return new Decoded(DecodeBody(bytes, 2, Encoding.Unicode), Encoding.Unicode, bytes[..2], "UTF-16 LE");
+            return new Decoded(DecodeBody(bytes, 2, Encoding.Unicode), Encoding.Unicode, Compat.Take(bytes, 2), "UTF-16 LE");
 
         if (bytes.Length >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF)
-            return new Decoded(DecodeBody(bytes, 2, Encoding.BigEndianUnicode), Encoding.BigEndianUnicode, bytes[..2], "UTF-16 BE");
+            return new Decoded(DecodeBody(bytes, 2, Encoding.BigEndianUnicode), Encoding.BigEndianUnicode, Compat.Take(bytes, 2), "UTF-16 BE");
 
         // 2) 严格 UTF-8 解码，成功即 UTF-8
         try
@@ -117,9 +117,9 @@ public sealed class TextFile
 
     private static string DetectNewline(string text)
     {
-        if (text.Contains("\r\n", StringComparison.Ordinal)) return "\r\n";
-        if (text.Contains('\n')) return "\n";
-        if (text.Contains('\r')) return "\r";
+        if (Compat.Has(text, "\r\n", StringComparison.Ordinal)) return "\r\n";
+        if (Compat.HasChar(text, '\n')) return "\n";
+        if (Compat.HasChar(text, '\r')) return "\r";
         return "\r\n";
     }
 

@@ -183,5 +183,9 @@ public sealed class SyncEngine
         _missing = false;
     }
 
-    internal static string Hash(byte[] data) => Convert.ToHexString(SHA1.HashData(data));
+    internal static string Hash(byte[] data)
+    {
+        using var sha = SHA1.Create();
+        return Compat.ToHex(sha.ComputeHash(data));
+    }
 }

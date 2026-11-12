@@ -37,13 +37,14 @@ internal static class SingleInstance
 
     /// <summary>
     /// 用 exe 完整路径（小写）的哈希做区分。
-    /// 单文件发布时 ProcessPath 就是 exe 本身；`dotnet run` 时它是 dotnet.exe，改用自己的程序集路径。
+    /// 单文件发布时它就是 exe 本身；`dotnet run` 时它是 dotnet.exe，改用自己的程序集目录。
+    /// （net48 没有 Environment.ProcessPath，用 Process.MainModule 取，两条路都走同一个分支逻辑。）
     /// </summary>
     private static string Key
     {
         get
         {
-            var exe = Environment.ProcessPath ?? "";
+            var exe = CurrentExePath();
             if (exe.Length == 0 ||
                 string.Equals(Path.GetFileName(exe), "dotnet.exe", StringComparison.OrdinalIgnoreCase))
             {
@@ -51,8 +52,23 @@ internal static class SingleInstance
             }
             if (exe.Length == 0) exe = "TxtLiveSync";
 
-            var hash = SHA256.HashData(Encoding.UTF8.GetBytes(exe.ToLowerInvariant()));
-            return Convert.ToHexString(hash)[..16];
+            using var sha = SHA256.Create();
+            var hash = sha.ComputeHash(Encoding.UTF8.GetBytes(exe.ToLowerInvariant()));
+            return Compat.ToHex(hash).Substring(0, 16);
+        }
+    }
+
+    private static string CurrentExePath()
+    {
+        try
+        {
+            using var p = System.Diagnostics.Process.GetCurrentProcess();
+            return p.MainModule?.FileName ?? "";
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception
+                                       or NotSupportedException)
+        {
+            return "";
         }
     }
 
@@ -131,12 +147,12 @@ internal static class SingleInstance
                 server = new NamedPipeServerStream(
                     PipeName, PipeDirection.In, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
 
-                await server.WaitForConnectionAsync(token).ConfigureAwait(false);
+                await WaitForConnectionAsync(server, token).ConfigureAwait(false);
 
                 string text;
                 using (var reader = new StreamReader(server, new UTF8Encoding(false), false, 4096, leaveOpen: true))
                 {
-                    text = await reader.ReadToEndAsync(token).ConfigureAwait(false);
+                    text = await ReadToEndAsync(reader, token).ConfigureAwait(false);
                 }
 
                 var paths = new List<string>();
@@ -172,6 +188,35 @@ internal static class SingleInstance
                 server?.Dispose();
             }
         }
+    }
+
+    /// <summary>
+    /// 等管道连上来。net48 的 WaitForConnectionAsync 没有 CancellationToken 重载，
+    /// 用"取消时把管道 Dispose 掉"来打断（会抛 ObjectDisposedException，被上层当成退出信号）。
+    /// </summary>
+    private static async Task WaitForConnectionAsync(NamedPipeServerStream server, CancellationToken token)
+    {
+#if NETFRAMEWORK
+        using (token.Register(() =>
+        {
+            try { server.Dispose(); }
+            catch (ObjectDisposedException) { }
+        }))
+        {
+            await server.WaitForConnectionAsync().ConfigureAwait(false);
+        }
+#else
+        await server.WaitForConnectionAsync(token).ConfigureAwait(false);
+#endif
+    }
+
+    private static async Task<string> ReadToEndAsync(StreamReader reader, CancellationToken token)
+    {
+#if NETFRAMEWORK
+        return await reader.ReadToEndAsync().ConfigureAwait(false);
+#else
+        return await reader.ReadToEndAsync(token).ConfigureAwait(false);
+#endif
     }
 
     // ---------------------------------------------------------------- 客户端

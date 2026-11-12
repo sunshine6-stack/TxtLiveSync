@@ -37,9 +37,10 @@ public static class SelectionTrim
     /// </summary>
     public static (int Start, int Length) WordAt(string? text, int index)
     {
-        if (string.IsNullOrEmpty(text)) return (0, 0);
+        // net48 的 string.IsNullOrEmpty 没带可空性注解，编译器推断不出非空，这里显式判一次
+        if (text is null || text.Length == 0) return (0, 0);
 
-        var i = Math.Clamp(index, 0, text.Length - 1);
+        var i = Compat.Clamp(index, 0, text.Length - 1);
         if (text[i] == '\r' || text[i] == '\n') return (i, 1);   // 正好点在换行上：只选这一个字符
 
         var cls = Classify(text[i]);
