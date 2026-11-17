@@ -47,6 +47,35 @@
       </Setter>
     </Style>
 
+    <!-- 标签条右端的「＋」：新建一个空白文本文档 -->
+    <Style x:Key="TabNewButton" TargetType="Button">
+      <Setter Property="Width" Value="24" />
+      <Setter Property="Height" Value="24" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Foreground" Value="#5A6472" />
+      <Setter Property="Cursor" Value="Hand" />
+      <Setter Property="Focusable" Value="False" />
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="b" Background="{TemplateBinding Background}" CornerRadius="5"
+                    SnapsToDevicePixels="True">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="b" Property="Background" Value="#E4E8ED" />
+                <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+              </Trigger>
+              <Trigger Property="IsPressed" Value="True">
+                <Setter TargetName="b" Property="Background" Value="#D6DCE4" />
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
     <!-- 标签条：单行横向滚动，多了不换行挤压正文 -->
     <Style x:Key="DocTabControl" TargetType="TabControl">
       <Setter Property="BorderThickness" Value="0" />
@@ -62,10 +91,22 @@
               </Grid.RowDefinitions>
 
               <Border Grid.Row="0" Background="#F1F3F6" Padding="8,5,8,0">
-                <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"
-                              Focusable="False">
-                  <TabPanel IsItemsHost="True" />
-                </ScrollViewer>
+                <DockPanel LastChildFill="True">
+                  <!-- 固定在标签条最右端：标签再多也不会把「＋」滚出视野 -->
+                  <Button DockPanel.Dock="Right" Style="{StaticResource TabNewButton}"
+                          Click="OnNewTab" VerticalAlignment="Bottom" Margin="8,0,0,5"
+                          ToolTip="新建文本文档（Ctrl+N）"
+                          AutomationProperties.AutomationId="BtnNewTab"
+                          AutomationProperties.Name="新建文本文档">
+                    <TextBlock Text="＋" FontSize="13" HorizontalAlignment="Center" VerticalAlignment="Center"
+                               Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
+                  </Button>
+
+                  <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"
+                                Focusable="False">
+                    <TabPanel IsItemsHost="True" />
+                  </ScrollViewer>
+                </DockPanel>
               </Border>
 
               <Border Grid.Row="1" Background="#FFFFFF">
@@ -139,6 +180,7 @@
           </Menu.ItemContainerStyle>
 
           <MenuItem Header="文件">
+            <MenuItem Header="新建文本文档" Click="OnNewTab" InputGestureText="Ctrl+N" />
             <MenuItem Header="打开…" Click="OnOpen" InputGestureText="Ctrl+O" />
             <MenuItem Header="保存" Click="OnSave" InputGestureText="Ctrl+S" />
             <MenuItem Header="另存为…" Click="OnSaveAs" InputGestureText="Ctrl+Shift+S" />
@@ -194,9 +236,13 @@
                    HorizontalAlignment="Center" />
         <TextBlock Text="把 .txt 拖进来，或点下面的按钮" FontSize="12"
                    Foreground="{StaticResource MutedBrush}" HorizontalAlignment="Center" Margin="0,8,0,0" />
-        <Button Style="{StaticResource PrimaryButton}" Content="打开文件…" Click="OnOpen"
-                Margin="0,18,0,0" HorizontalAlignment="Center" />
-        <TextBlock Text="Ctrl+F 查找 · Ctrl+W 关标签 · Ctrl+Tab 切换"
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,18,0,0">
+          <Button Style="{StaticResource PrimaryButton}" Content="打开文件…" Click="OnOpen" />
+          <Button Style="{StaticResource ToolButton}" Content="新建文本文档" Click="OnNewTab"
+                  Height="30" Margin="8,0,0,0" Padding="14,0"
+                  ToolTip="新建一个空白文档（Ctrl+N）" />
+        </StackPanel>
+        <TextBlock Text="Ctrl+N 新建 · Ctrl+F 查找 · Ctrl+W 关标签 · Ctrl+Tab 切换"
                    FontSize="11" Foreground="#A0A7B1" HorizontalAlignment="Center" Margin="0,20,0,0" />
       </StackPanel>
     </Border>

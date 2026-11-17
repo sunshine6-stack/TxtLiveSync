@@ -91,7 +91,7 @@ public partial class MainWindow : Window
         }
         else
         {
-            SetStatus("就绪 · 拖入文件或按 Ctrl+O 打开", "muted");
+            SetStatus("就绪 · Ctrl+N 新建，拖入文件或按 Ctrl+O 打开", "muted");
         }
 
         UpdateChrome();
@@ -344,6 +344,31 @@ public partial class MainWindow : Window
 
     // ---------------------------------------------------------------- 菜单动作
 
+    /// <summary>标签条上的「＋」/ 文件→新建 / Ctrl+N：开一个空白文档，不碰磁盘。</summary>
+    private void OnNewTab(object sender, RoutedEventArgs e)
+    {
+        var doc = new DocumentTab();
+        doc.ApplySettings(_cfg.WordWrap, _cfg.FontSize);
+        doc.NewDocument(NextUntitledName());
+
+        AddTab(doc);
+        SelectDoc(doc);
+        UpdateChrome();
+
+        SetStatus("已新建文本文档：直接写内容，Ctrl+S 保存时再选存放位置。", "muted");
+    }
+
+    /// <summary>给新建的空白文档起名：未命名 1、未命名 2…，跳过已被占用的。</summary>
+    private string NextUntitledName()
+    {
+        var used = new HashSet<string>(Docs.Select(d => d.DisplayName), StringComparer.OrdinalIgnoreCase);
+        for (var i = 1; ; i++)
+        {
+            var name = $"未命名 {i}";
+            if (!used.Contains(name)) return name;
+        }
+    }
+
     private void OnOpen(object sender, RoutedEventArgs e)
     {
         var dlg = new OpenFileDialog
@@ -554,7 +579,7 @@ public partial class MainWindow : Window
             "TxtLiveSync\n\n轻量级 TXT 实时同步查看 / 编辑器（多标签）\n" +
             $".NET {Environment.Version} · WPF\n轮询间隔 {PollMs} ms\n\n" +
             "默认策略：外部修改时静默以磁盘内容为准。\n\n" +
-            "Ctrl+F 查找 · Ctrl+H 替换 · Ctrl+W 关闭标签 · Ctrl+Tab 切换标签\n" +
+            "Ctrl+N 新建文本文档 · Ctrl+F 查找 · Ctrl+H 替换 · Ctrl+W 关闭标签 · Ctrl+Tab 切换标签\n" +
             "End 跳到行尾 · Ctrl+End 跳到全文最后",
             "关于",
             MessageBoxButton.OK,
@@ -668,7 +693,8 @@ public partial class MainWindow : Window
         var ctrl = (Keyboard.Modifiers & ModifierKeys.Control) != 0;
         var shift = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
 
-        if (ctrl && e.Key == Key.O) { OnOpen(this, new RoutedEventArgs()); e.Handled = true; }
+        if (ctrl && e.Key == Key.N) { OnNewTab(this, new RoutedEventArgs()); e.Handled = true; }
+        else if (ctrl && e.Key == Key.O) { OnOpen(this, new RoutedEventArgs()); e.Handled = true; }
         else if (ctrl && e.Key == Key.S) { if (shift) OnSaveAs(this, new RoutedEventArgs()); else OnSave(this, new RoutedEventArgs()); e.Handled = true; }
         else if (ctrl && e.Key == Key.F) { OnFind(this, new RoutedEventArgs()); e.Handled = true; }
         else if (ctrl && e.Key == Key.H) { OnReplace(this, new RoutedEventArgs()); e.Handled = true; }

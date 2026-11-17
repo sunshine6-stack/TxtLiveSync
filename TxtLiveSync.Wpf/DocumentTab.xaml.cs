@@ -20,6 +20,9 @@ public partial class DocumentTab : UserControl
     private bool _suppressText;   // 程序改写 Editor.Text 时避免误判为编辑
     private bool _dirty;
 
+    /// <summary>还没有对应磁盘文件时，标签上显示的名字（新建的空白文档）。</summary>
+    private string _untitledName = "未命名";
+
     /// <summary>
     /// 当前命中的起点（-1 = 还没有）。
     /// 「下一个」之后不选中文本、只记下位置：选中样式由高亮层自己画（文字永远不会被色块盖住），
@@ -31,8 +34,8 @@ public partial class DocumentTab : UserControl
 
     public TextFile? File => Engine.File;
     public string? Path => File?.Path;
-    public string DisplayName => File?.Name ?? "未命名";
-    public string ToolTipPath => File?.Path ?? "";
+    public string DisplayName => File?.Name ?? _untitledName;
+    public string ToolTipPath => File?.Path ?? "尚未保存到磁盘的新文档";
     public bool IsDirty => _dirty;
 
     /// <summary>弹窗未关闭时暂停本页轮询，避免同一变更反复询问。</summary>
@@ -211,6 +214,37 @@ public partial class DocumentTab : UserControl
         RefreshMatchInfo();
     }
 
+    // ---------------------------------------------------------------- 新建空白文档
+
+    /// <summary>
+    /// 把本页变成一张空白的、不关联磁盘文件的新文档。
+    /// 之后保存会走「另存为」，让用户自己挑位置和文件名。
+    /// </summary>
+    public void NewDocument(string untitledName)
+    {
+        Engine.Detach();                                  // 断开与旧文件的同步
+        _untitledName = string.IsNullOrWhiteSpace(untitledName) ? "未命名" : untitledName;
+
+        _suppressText = true;
+        Editor.Text = "";
+        _suppressText = false;
+
+        _dirty = false;
+        _matchStart = -1;
+
+        if (IsFindBarOpen)
+        {
+            FindBar.Visibility = Visibility.Collapsed;
+            FindBox.Text = "";
+            HighlightLayer.Clear();
+        }
+
+        Editor.CaretIndex = 0;
+        Editor.ScrollToHome();
+        StateChanged?.Invoke(this, EventArgs.Empty);
+        RefreshMatchInfo();
+    }
+
     // ---------------------------------------------------------------- 轮询
 
     public void Poll(bool confirm)
@@ -289,7 +323,7 @@ public partial class DocumentTab : UserControl
         var dlg = new Microsoft.Win32.SaveFileDialog
         {
             Filter = "文本文件 (*.txt)|*.txt|所有文件 (*.*)|*.*",
-            FileName = DisplayName ?? "未命名.txt",
+            FileName = File is null ? "新建文本文档.txt" : DisplayName,
             DefaultExt = ".txt",
         };
         if (!string.IsNullOrWhiteSpace(Path))
@@ -536,7 +570,7 @@ public partial class DocumentTab : UserControl
         }
 
         // 程序改写文本不会触发 TextChanged 里的脏判断，这里补一次
-        var dirty = File is not null && !string.Equals(Editor.Text, File.Text, StringComparison.Ordinal);
+        var dirty = ComputeDirty();
         if (dirty != _dirty) { _dirty = dirty; StateChanged?.Invoke(this, EventArgs.Empty); }
 
         Editor.CaretIndex = 0;
@@ -753,13 +787,22 @@ public partial class DocumentTab : UserControl
 
     // ---------------------------------------------------------------- 编辑状态
 
+    /// <summary>
+    /// 是否算「有未保存的修改」。
+    /// 新文档（没关联文件）只要写了字就算脏，否则关标签会悄悄丢掉内容。
+    /// </summary>
+    private bool ComputeDirty()
+        => File is null
+            ? Editor.Text.Length > 0
+            : !string.Equals(Editor.Text, File.Text, StringComparison.Ordinal);
+
     private void OnTextChanged(object sender, TextChangedEventArgs e)
     {
         if (_suppressText) return;
 
         RefreshMatchInfo();
 
-        var dirty = File is not null && !string.Equals(Editor.Text, File.Text, StringComparison.Ordinal);
+        var dirty = ComputeDirty();
         if (dirty == _dirty) return;
 
         _dirty = dirty;
