@@ -5,30 +5,45 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Threading;
+using ICSharpCode.AvalonEdit;
+using ICSharpCode.AvalonEdit.Document;
+using ICSharpCode.AvalonEdit.Folding;
+using ICSharpCode.AvalonEdit.Highlighting;
+using ICSharpCode.AvalonEdit.Rendering;
 
 namespace TxtLiveSync;
 
 /// <summary>
-/// 一个标签页 = 一个文件。负责自己的编辑区、SyncEngine、脏标记、保存/重新加载、查找替换，
-/// 与主窗口只通过事件和几个公开方法交互，方便多标签共存。
+/// 一个标签页 = 一个文件。负责自己的编辑区、SyncEngine、脏标记、保存/重新加载、查找替换、
+/// 折叠与格式化，与主窗口只通过事件和几个公开方法交互，方便多标签共存。
+///
+/// 编辑区用 AvalonEdit 而不是 TextBox：折叠必须在「行可以被隐藏」的渲染器上做，
+/// TextBox 只有一条文本流、没有行模型，做不到。
 /// </summary>
 public partial class DocumentTab : UserControl
 {
     /// <summary>超过这个长度就不统计匹配总数了（逐字符扫描会卡）。</summary>
     private const int CountLimit = 1_500_000;
 
-    private bool _suppressText;   // 程序改写 Editor.Text 时避免误判为编辑
+    /// <summary>超过这个长度就不算折叠区间了，免得每次输入都全量扫一遍大文件。</summary>
+    private const int FoldLimit = 2_000_000;
+
+    /// <summary>单行里最多标这么多处，防止一行几万个匹配时画到卡。</summary>
+    private const int MaxMarksPerScreen = 400;
+
+    private bool _suppressText;   // 程序改写文档时避免误判为编辑
     private bool _dirty;
 
     /// <summary>还没有对应磁盘文件时，标签上显示的名字（新建的空白文档）。</summary>
     private string _untitledName = "未命名";
 
-    /// <summary>
-    /// 当前命中的起点（-1 = 还没有）。
-    /// 「下一个」之后不选中文本、只记下位置：选中样式由高亮层自己画（文字永远不会被色块盖住），
-    /// 而 TextBox 的选区在失焦/非活动状态下会把选中文字刷成浅色，浅蓝底上看不见字。
-    /// </summary>
+    /// <summary>当前命中的起点（-1 = 还没有）。命中只放光标不选中，色块由背景渲染层画。</summary>
     private int _matchStart = -1;
+
+    private readonly SearchHighlightRenderer _highlighter = new();
+    private readonly DispatcherTimer _foldTimer;
+    private readonly FoldingManager _foldManager;
 
     public SyncEngine Engine { get; } = new();
 
@@ -38,10 +53,11 @@ public partial class DocumentTab : UserControl
     public string ToolTipPath => File?.Path ?? "尚未保存到磁盘的新文档";
     public bool IsDirty => _dirty;
 
+    /// <summary>当前字号（主窗口调字号时用）。</summary>
+    public double EditorFontSize => Editor.FontSize;
+
     /// <summary>弹窗未关闭时暂停本页轮询，避免同一变更反复询问。</summary>
     public bool IsPrompting { get; private set; }
-
-    public TextBox TextBoxControl => Editor;
 
     /// <summary>文件名或脏标记变化（用于刷新标签标题与窗口标题）。</summary>
     public event EventHandler? StateChanged;
@@ -57,25 +73,53 @@ public partial class DocumentTab : UserControl
     {
         get
         {
-            var idx = Compat.Clamp(Editor.CaretIndex, 0, Editor.Text.Length);
-            var line = Editor.GetLineIndexFromCharacterIndex(idx);
-            if (line < 0) return (1, 1);
-
-            var lineStart = Editor.GetCharacterIndexFromLineIndex(line);
-            if (lineStart < 0) lineStart = 0;
-
-            return (line + 1, idx - lineStart + 1);
+            var caret = Editor.TextArea.Caret;
+            return (Math.Max(caret.Line, 1), Math.Max(caret.Column, 1));
         }
     }
 
     public DocumentTab()
     {
         InitializeComponent();
-        Editor.IsInactiveSelectionHighlightEnabled = false;   // 命中靠高亮层显示，不靠失焦选区（失焦选区会把字刷浅）
-        Editor.AddHandler(ScrollViewer.ScrollChangedEvent,
-            new ScrollChangedEventHandler((_, _) => RefreshHighlights()));
+
+        // 保留 Tab 字符、不自动替换成空格：这是 TXT 编辑器，别偷偷改用户的缩进
+        Editor.Options.ConvertTabsToSpaces = false;
+        Editor.Options.IndentationSize = 4;
+        Editor.Options.EnableHyperlinks = false;
+        Editor.Options.EnableEmailHyperlinks = false;
+        Editor.Options.CutCopyWholeLine = true;
+
+        Editor.TextArea.TextView.BackgroundRenderers.Add(_highlighter);
+
+        // 折叠：Install 会顺手把左侧的 +/- 按钮（FoldingMargin）挂到边距栏里
+        _foldManager = FoldingManager.Install(Editor.TextArea);
+
+        // 反过来把它挪到行号左边：VS / VS Code 的折叠按钮都在最左侧
+        FoldingMargin? foldingMargin = null;
+        foreach (var margin in Editor.TextArea.LeftMargins)
+        {
+            if (margin is FoldingMargin fm) { foldingMargin = fm; break; }
+        }
+        if (foldingMargin is not null)
+        {
+            Editor.TextArea.LeftMargins.Remove(foldingMargin);
+            Editor.TextArea.LeftMargins.Insert(0, foldingMargin);
+        }
+
+        _foldTimer = new DispatcherTimer(DispatcherPriority.Background)
+        {
+            Interval = TimeSpan.FromMilliseconds(350),
+        };
+        _foldTimer.Tick += (_, _) =>
+        {
+            _foldTimer.Stop();
+            UpdateFoldings();
+        };
+
+        Editor.TextArea.Caret.PositionChanged += (_, _) => RaiseCaretMoved();
+        Editor.TextArea.SelectionChanged += (_, _) => RaiseCaretMoved();
+        Editor.TextArea.TextView.ScrollOffsetChanged += (_, _) => RefreshHighlights();
         Editor.SizeChanged += (_, _) => RefreshHighlights();
-        Editor.SelectionChanged += (_, _) => RaiseCaretMoved();   // 光标移动也会走这里
     }
 
     private void RaiseCaretMoved()
@@ -86,135 +130,130 @@ public partial class DocumentTab : UserControl
 
     public void ApplySettings(bool wordWrap, double fontSize)
     {
-        Editor.TextWrapping = wordWrap ? TextWrapping.Wrap : TextWrapping.NoWrap;
+        Editor.WordWrap = wordWrap;
         Editor.FontSize = Compat.Clamp(fontSize, 9, 32);
     }
 
-    public void FocusEditor() => Editor.Focus();
+    public void FocusEditor() => Editor.TextArea.Focus();
 
     // ---------------------------------------------------------------- 跳到行尾 / 文末
 
     /// <summary>
-    /// End：光标到当前行的行尾（换行符之前）。
-    /// Ctrl+End：光标到全文最后（最后一行之后，也就是文档末尾）。
-    /// Shift 一起按时改为"选中到该位置"，跟系统习惯一致。
-    ///
-    /// 这两个组合 WPF 的 TextBox 本来就有，但仍然自己接管：
-    /// 一是行尾要去掉 \r\n（内置行为在 CRLF 文件里会把光标停到换行符后面，
-    /// 再按一下 End 才到真正的行尾）；二是长行不换行时要把光标横向滚进可视区，
-    /// 内置行为在 NoWrap + 横向滚动条的情况下不总能滚到位。
+    /// End：光标到当前行的行尾（换行符之前）。Ctrl+End：光标到全文最后。
+    /// Shift 一起按时改为「选中到该位置」。
+    /// 另外接管 Ctrl+Shift+[ / ] 做折叠、展开。
     /// </summary>
     private void OnEditorPreviewKeyDown(object sender, KeyEventArgs e)
     {
-        if (e.Key != Key.End) return;
-
         var mods = Keyboard.Modifiers;
-        if ((mods & ModifierKeys.Alt) != 0) return;             // Alt 组合不抢
 
-        MoveCaretToEnd((mods & ModifierKeys.Control) != 0, (mods & ModifierKeys.Shift) != 0);
-        e.Handled = true;
+        if (e.Key == Key.End && (mods & ModifierKeys.Alt) == 0)
+        {
+            MoveCaretToEnd((mods & ModifierKeys.Control) != 0, (mods & ModifierKeys.Shift) != 0);
+            e.Handled = true;
+            return;
+        }
+
+        if ((mods & (ModifierKeys.Control | ModifierKeys.Shift)) == (ModifierKeys.Control | ModifierKeys.Shift))
+        {
+            if (e.Key == Key.OemOpenBrackets)
+            {
+                ToggleFoldAtCaret(true);
+                e.Handled = true;
+                return;
+            }
+            if (e.Key == Key.OemCloseBrackets)
+            {
+                ToggleFoldAtCaret(false);
+                e.Handled = true;
+                return;
+            }
+        }
     }
 
     /// <summary>菜单/按钮调用：跳到当前行行尾。</summary>
     public void JumpToLineEnd()
     {
-        Editor.Focus();
+        FocusEditor();
         MoveCaretToEnd(toDocumentEnd: false, extend: false);
     }
 
     /// <summary>菜单/按钮调用：跳到全文最后。</summary>
     public void JumpToDocumentEnd()
     {
-        Editor.Focus();
+        FocusEditor();
         MoveCaretToEnd(toDocumentEnd: true, extend: false);
     }
 
     private void MoveCaretToEnd(bool toDocumentEnd, bool extend)
     {
-        var text = Editor.Text;
-        var target = toDocumentEnd ? text.Length : CurrentLineEnd(text);
-        target = Compat.Clamp(target, 0, text.Length);
+        var doc = Editor.Document;
+        var caret = Editor.TextArea.Caret;
+        var offset = Compat.Clamp(caret.Offset, 0, doc.TextLength);
 
-        if (extend)
+        int target;
+        if (toDocumentEnd)
         {
-            // 以原选区的起点为锚点，向目标位置扩选
-            var anchor = Editor.SelectionStart;
-            if (target >= anchor) Editor.Select(anchor, target - anchor);
-            else Editor.Select(target, anchor - target);
+            target = doc.TextLength;
         }
         else
         {
-            Editor.CaretIndex = target;      // 赋值会顺手清掉选区
+            var line = doc.GetLineByOffset(offset);
+            target = line.EndOffset;
+            // End 要停在换行符之前：CRLF 文件里默认行为会把光标放到 \n 后面
+            while (target > line.Offset)
+            {
+                var ch = doc.GetCharAt(target - 1);
+                if (ch == '\r' || ch == '\n') target--;
+                else break;
+            }
         }
 
-        EnsureCaretVisible();
+        if (!extend)
+        {
+            Editor.CaretOffset = target;
+        }
+        else
+        {
+            // 锚点取「选区的另一端」，这样 Shift+End 是延续已有选区，而不是重新开始
+            var anchor = offset;
+            if (Editor.SelectionLength > 0)
+            {
+                var s = Editor.SelectionStart;
+                var e = s + Editor.SelectionLength;
+                anchor = offset <= s ? e : s;
+            }
+
+            if (target >= anchor) Editor.Select(anchor, target - anchor);
+            else Editor.Select(target, anchor - target);
+        }
+
+        Editor.TextArea.Caret.BringCaretToView();
     }
 
-    /// <summary>光标所在行的行尾位置：不含行尾的 \r\n。</summary>
-    private int CurrentLineEnd(string text)
-    {
-        var idx = Compat.Clamp(Editor.CaretIndex, 0, text.Length);
-        var line = Editor.GetLineIndexFromCharacterIndex(idx);
-        if (line < 0) return idx;
-
-        var start = Editor.GetCharacterIndexFromLineIndex(line);
-        if (start < 0) return idx;
-
-        var end = start + Editor.GetLineLength(line);
-        if (end > text.Length) end = text.Length;
-        while (end > start && (text[end - 1] == '\r' || text[end - 1] == '\n')) end--;
-        return end;
-    }
-
-    /// <summary>
-    /// 把刚移动到的光标滚进可视区。纵向用 ScrollToLine（可靠）；
-    /// 横向没有现成 API，按光标矩形和可视区的差值补一次偏移。
-    /// </summary>
-    private void EnsureCaretVisible()
-    {
-        Editor.UpdateLayout();
-
-        var line = Editor.GetLineIndexFromCharacterIndex(Editor.CaretIndex);
-        if (line >= 0) Editor.ScrollToLine(line);
-        Editor.UpdateLayout();
-
-        var caret = Editor.GetRectFromCharacterIndex(Editor.CaretIndex, false);
-        if (caret.IsEmpty) return;
-
-        var view = TextViewportRect();
-        if (view.IsEmpty) return;
-
-        const double pad = 24;
-        if (caret.Right > view.Right)
-            Editor.ScrollToHorizontalOffset(Editor.HorizontalOffset + (caret.Right - view.Right) + pad);
-        else if (caret.Left < view.Left)
-            Editor.ScrollToHorizontalOffset(Math.Max(0, Editor.HorizontalOffset - (view.Left - caret.Left) - pad));
-    }
-
-
-    // ---------------------------------------------------------------- 载入
+    // ---------------------------------------------------------------- 载入 / 新建
 
     /// <summary>把磁盘内容装进本页，并把它设为同步基准（清脏标记）。</summary>
     public void Load(TextFile file, bool resetCaret = true)
     {
         Engine.Attach(file);
-
-        _suppressText = true;
-        Editor.Text = file.Text;
-        _suppressText = false;
+        SetTextQuiet(file.Text);
+        Editor.Document.UndoStack.ClearAll();
 
         _dirty = false;
         _matchStart = -1;          // 换文件/重新加载后旧的命中位置作废
+
         if (resetCaret)
         {
-            Editor.CaretIndex = 0;
+            Editor.CaretOffset = 0;
             Editor.ScrollToHome();
         }
+
+        ApplySyntaxHighlighting();
+        UpdateFoldings();
         StateChanged?.Invoke(this, EventArgs.Empty);
         RefreshMatchInfo();
     }
-
-    // ---------------------------------------------------------------- 新建空白文档
 
     /// <summary>
     /// 把本页变成一张空白的、不关联磁盘文件的新文档。
@@ -225,9 +264,8 @@ public partial class DocumentTab : UserControl
         Engine.Detach();                                  // 断开与旧文件的同步
         _untitledName = string.IsNullOrWhiteSpace(untitledName) ? "未命名" : untitledName;
 
-        _suppressText = true;
-        Editor.Text = "";
-        _suppressText = false;
+        SetTextQuiet("");
+        Editor.Document.UndoStack.ClearAll();
 
         _dirty = false;
         _matchStart = -1;
@@ -236,13 +274,147 @@ public partial class DocumentTab : UserControl
         {
             FindBar.Visibility = Visibility.Collapsed;
             FindBox.Text = "";
-            HighlightLayer.Clear();
+            _highlighter.Clear();
         }
 
-        Editor.CaretIndex = 0;
+        Editor.CaretOffset = 0;
         Editor.ScrollToHome();
+
+        ApplySyntaxHighlighting();
+        UpdateFoldings();
         StateChanged?.Invoke(this, EventArgs.Empty);
         RefreshMatchInfo();
+    }
+
+    private void SetTextQuiet(string text)
+    {
+        _suppressText = true;
+        try
+        {
+            Editor.Text = text;
+        }
+        finally
+        {
+            _suppressText = false;
+        }
+    }
+
+    // ---------------------------------------------------------------- 折叠
+
+    /// <summary>按文件类型重算可折叠区间。输入时走 350ms 防抖，载入/格式化时立即算。</summary>
+    private void UpdateFoldings()
+    {
+        var text = Editor.Text;
+        if (text.Length > FoldLimit)
+        {
+            _foldManager.UpdateFoldings(Array.Empty<NewFolding>(), -1);
+            return;
+        }
+
+        var kind = TextFormat.DetectKind(Path, text);
+        var ranges = FoldingRanges.Build(text, kind);
+
+        var foldings = new List<NewFolding>(ranges.Count);
+        foreach (var r in ranges)
+        {
+            foldings.Add(new NewFolding(r.StartOffset, r.EndOffset));
+        }
+
+        _foldManager.UpdateFoldings(foldings, -1);
+    }
+
+    /// <summary>Ctrl+Shift+[ / ]：折叠或展开光标所在的那一段。</summary>
+    private void ToggleFoldAtCaret(bool fold)
+    {
+        var offset = Compat.Clamp(Editor.CaretOffset, 0, Editor.Document.TextLength);
+
+        FoldingSection? best = null;
+        foreach (var section in _foldManager.GetFoldingsContaining(offset))
+        {
+            if (section.IsFolded == fold) continue;
+            if (best is null || section.StartOffset >= best.StartOffset) best = section;
+        }
+
+        if (best is null)
+        {
+            StatusChanged?.Invoke(fold ? "光标处没有可折叠的块。" : "光标处没有已折叠的块。", "muted");
+            return;
+        }
+
+        best.IsFolded = fold;
+    }
+
+    /// <summary>视图菜单：全部折叠 / 全部展开。</summary>
+    public void FoldAll(bool fold)
+    {
+        var count = 0;
+        foreach (var section in _foldManager.AllFoldings)
+        {
+            if (section.IsFolded == fold) continue;
+            section.IsFolded = fold;
+            count++;
+        }
+        StatusChanged?.Invoke(fold ? $"已折叠 {count} 处。" : $"已展开 {count} 处。", "muted");
+    }
+
+    // ---------------------------------------------------------------- 格式化
+
+    /// <summary>格式化当前文档（JSON / XML）。走 Document.Replace，所以 Ctrl+Z 能撤回。</summary>
+    public bool FormatDocument()
+    {
+        var text = Editor.Text;
+        var kind = TextFormat.DetectKind(Path, text);
+
+        if (kind == TextKind.Plain)
+        {
+            StatusChanged?.Invoke("这个文件按扩展名不是 JSON / XML，未做格式化。", "warn");
+            return false;
+        }
+
+        if (!TextFormat.TryFormat(text, kind, out var formatted, out var error))
+        {
+            StatusChanged?.Invoke(error, "warn");
+            return false;
+        }
+
+        if (string.Equals(formatted, text, StringComparison.Ordinal))
+        {
+            StatusChanged?.Invoke("已经是格式化后的样子，没有改动。", "muted");
+            return false;
+        }
+
+        var caret = Editor.TextArea.Caret;
+        var line = caret.Line;
+        var column = caret.Column;
+
+        _suppressText = true;
+        try
+        {
+            Editor.Document.Replace(0, Editor.Document.TextLength, formatted);
+        }
+        finally
+        {
+            _suppressText = false;
+        }
+
+        // 光标按原来的行列还原（格式化后行号会变，尽量落在原来那一行的同一列）
+        var doc = Editor.Document;
+        var targetLine = doc.GetLineByNumber(Compat.Clamp(line, 1, doc.LineCount));
+        var targetColumn = Compat.Clamp(column, 1, targetLine.Length + 1);
+        Editor.CaretOffset = targetLine.Offset + targetColumn - 1;
+        caret.BringCaretToView();
+
+        var dirty = ComputeDirty();
+        _dirty = dirty;
+
+        ApplySyntaxHighlighting();
+        _foldTimer.Stop();
+        UpdateFoldings();
+        RefreshMatchInfo();
+        StateChanged?.Invoke(this, EventArgs.Empty);
+
+        StatusChanged?.Invoke(kind == TextKind.Json ? "已格式化 JSON。" : "已格式化 XML。", "ok");
+        return true;
     }
 
     // ---------------------------------------------------------------- 轮询
@@ -322,7 +494,7 @@ public partial class DocumentTab : UserControl
     {
         var dlg = new Microsoft.Win32.SaveFileDialog
         {
-            Filter = "文本文件 (*.txt)|*.txt|所有文件 (*.*)|*.*",
+            Filter = "文本文件 (*.txt)|*.txt|JSON (*.json)|*.json|XML (*.xml)|*.xml|所有文件 (*.*)|*.*",
             FileName = File is null ? "新建文本文档.txt" : DisplayName,
             DefaultExt = ".txt",
         };
@@ -396,7 +568,7 @@ public partial class DocumentTab : UserControl
         // 有单词选中就带进查找框，省得手打
         var sel = Editor.SelectedText;
         if (!string.IsNullOrEmpty(sel) && sel.Length <= 120
-            && !Compat.HasChar(sel, '\n') && !Compat.HasChar(sel, '\r'))
+            && sel.IndexOf('\n') < 0 && sel.IndexOf('\r') < 0)
             FindBox.Text = sel;
 
         FindBox.Focus();
@@ -417,9 +589,15 @@ public partial class DocumentTab : UserControl
     private void CloseFindBar()
     {
         FindBar.Visibility = Visibility.Collapsed;
-        HighlightLayer.Clear();          // 查找条关了就不再标命中
+        ClearHighlights();
         _matchStart = -1;
-        Editor.Focus();
+        Editor.TextArea.Focus();
+    }
+
+    private void ClearHighlights()
+    {
+        _highlighter.Clear();
+        Editor.TextArea.TextView.Redraw();
     }
 
     private void OnFindClose(object sender, RoutedEventArgs e) => CloseFindBar();
@@ -477,14 +655,14 @@ public partial class DocumentTab : UserControl
         int idx;
         if (forward)
         {
-            var from = _matchStart >= 0 ? _matchStart + needle.Length : Editor.CaretIndex;
+            var from = _matchStart >= 0 ? _matchStart + needle.Length : Editor.CaretOffset;
             if (from > hay.Length) from = hay.Length;
             idx = from <= hay.Length ? hay.IndexOf(needle, from, Cmp) : -1;
             if (idx < 0) idx = hay.IndexOf(needle, 0, Cmp);            // 绕回开头
         }
         else
         {
-            var to = (_matchStart >= 0 ? _matchStart : Editor.CaretIndex) - 1;
+            var to = (_matchStart >= 0 ? _matchStart : Editor.CaretOffset) - 1;
             if (to >= hay.Length) to = hay.Length - 1;
             idx = to >= 0 ? hay.LastIndexOf(needle, to, Cmp) : -1;
             if (idx < 0) idx = hay.LastIndexOf(needle, hay.Length - 1, Cmp);   // 绕回末尾
@@ -506,11 +684,13 @@ public partial class DocumentTab : UserControl
     {
         _matchStart = start;
 
-        // CaretIndex 赋值会顺手清掉选区（用户手动选着一段时，查找不该保留那段高亮）
-        if (Editor.CaretIndex != start) Editor.CaretIndex = start;
+        // CaretOffset 赋值会顺手清掉选区（用户手动选着一段时，查找不该保留那段高亮）
+        if (Editor.CaretOffset != start) Editor.CaretOffset = start;
 
-        Editor.ScrollToLine(Editor.GetLineIndexFromCharacterIndex(start));
+        Editor.ScrollToLine(Editor.Document.GetLineByOffset(start).LineNumber);
+        Editor.TextArea.Caret.BringCaretToView();
         EnsureNotBehindFindBar(start, length);
+        RefreshHighlights();
     }
 
     /// <summary>当前命中还在原位、且内容仍是查找词吗（文本可能被改过）。</summary>
@@ -536,7 +716,7 @@ public partial class DocumentTab : UserControl
         }
 
         var at = _matchStart;
-        Editor.Select(at, needle.Length);          // 只在这一瞬间用一下选区，写完立刻清掉
+        Editor.Select(at, needle.Length);
         Editor.SelectedText = ReplaceBox.Text;
         Editor.Select(at + ReplaceBox.Text.Length, 0);
         _matchStart = -1;
@@ -551,29 +731,42 @@ public partial class DocumentTab : UserControl
 
         var hay = Editor.Text;
         int count;
+        string replaced;
+
         if (CaseSensitive)
         {
             count = CountMatches(hay, needle, StringComparison.Ordinal).Total;
             if (count == 0) { SetFindInfo("无结果", true); RefreshHighlights(); return; }
-            _suppressText = true;
-            Editor.Text = Compat.Replace(hay, needle, ReplaceBox.Text, StringComparison.Ordinal);
-            _suppressText = false;
+            replaced = Compat.Replace(hay, needle, ReplaceBox.Text, StringComparison.Ordinal);
         }
         else
         {
             var pattern = new Regex(Regex.Escape(needle), RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
             count = pattern.Matches(hay).Count;
             if (count == 0) { SetFindInfo("无结果", true); RefreshHighlights(); return; }
-            _suppressText = true;
-            Editor.Text = pattern.Replace(hay, _ => ReplaceBox.Text);
+            replaced = pattern.Replace(hay, _ => ReplaceBox.Text);
+        }
+
+        _suppressText = true;
+        try
+        {
+            Editor.Document.Replace(0, Editor.Document.TextLength, replaced);
+        }
+        finally
+        {
             _suppressText = false;
         }
 
         // 程序改写文本不会触发 TextChanged 里的脏判断，这里补一次
         var dirty = ComputeDirty();
-        if (dirty != _dirty) { _dirty = dirty; StateChanged?.Invoke(this, EventArgs.Empty); }
+        if (dirty != _dirty)
+        {
+            _dirty = dirty;
+            StateChanged?.Invoke(this, EventArgs.Empty);
+        }
 
-        Editor.CaretIndex = 0;
+        Editor.CaretOffset = 0;
+        ScheduleFoldUpdate();
         RefreshMatchInfo();
         StatusChanged?.Invoke($"已替换 {count} 处。", "ok");
     }
@@ -655,18 +848,15 @@ public partial class DocumentTab : UserControl
 
     // ---------------------------------------------------------------- 命中高亮
 
-    /// <summary>单行里最多标这么多处，防止一行几万个匹配时画到卡。</summary>
-    private const int MaxMarksPerScreen = 400;
-
     /// <summary>
-    /// 重新计算可视区内的所有命中矩形，交给高亮层去画。
+    /// 重新计算可视区内的所有命中区间，交给背景渲染层去画。
     /// 只扫可视行，所以大文件滚动时也不会慢。
     /// </summary>
     private void RefreshHighlights()
     {
         if (!IsFindBarOpen)
         {
-            HighlightLayer.Clear();
+            if (_highlighter.Count > 0) ClearHighlights();
             return;
         }
 
@@ -674,25 +864,25 @@ public partial class DocumentTab : UserControl
         var hay = Editor.Text;
         if (needle.Length == 0 || hay.Length == 0)
         {
-            HighlightLayer.Clear();
+            ClearHighlights();
             return;
         }
 
-        var firstLine = Editor.GetFirstVisibleLineIndex();
-        var lastLine = Editor.GetLastVisibleLineIndex();
-        if (firstLine < 0 || lastLine < firstLine)
+        var view = Editor.TextArea.TextView;
+        if (!view.VisualLinesValid) view.EnsureVisualLines();
+        var lines = view.VisualLines;
+        if (lines.Count == 0)
         {
-            HighlightLayer.Clear();
+            ClearHighlights();
             return;
         }
 
-        var winStart = Editor.GetCharacterIndexFromLineIndex(firstLine);
-        if (winStart < 0) winStart = 0;
+        var doc = Editor.Document;
+        var firstLine = lines[0].FirstDocumentLine.LineNumber;
+        var lastLine = lines[lines.Count - 1].LastDocumentLine.LineNumber;
 
-        var winEnd = Editor.GetCharacterIndexFromLineIndex(lastLine);
-        winEnd = winEnd < 0
-            ? hay.Length
-            : Math.Min(hay.Length, winEnd + Editor.GetLineLength(lastLine));
+        var winStart = doc.GetLineByNumber(firstLine).Offset;
+        var winEnd = doc.GetLineByNumber(lastLine).EndOffset;
 
         // 匹配可能从上一行末尾开始，往回多看一个 needle 的长度
         var scan = Math.Max(0, winStart - Math.Min(needle.Length - 1, 512));
@@ -707,82 +897,66 @@ public partial class DocumentTab : UserControl
             var hit = hay.IndexOf(needle, i, Cmp);
             if (hit < 0 || hit + needle.Length > winEnd) break;
 
-            var r = RectFor(hit, needle.Length);
-            if (!r.IsEmpty) marks.Add(new HighlightMark(r, curIsMatch && hit == curStart));
-
+            marks.Add(new HighlightMark(hit, needle.Length, curIsMatch && hit == curStart));
             i = hit + Math.Max(needle.Length, 1);
         }
 
-        HighlightLayer.SetClip(TextViewportRect());
-        HighlightLayer.SetMarks(marks);
-    }
-
-    /// <summary>字符区间 → 屏幕矩形。查找词不含换行，正常都是一行内的事；跨行时只标第一行那段。</summary>
-    private Rect RectFor(int start, int length)
-    {
-        if (length <= 0) return Rect.Empty;
-
-        var head = Editor.GetRectFromCharacterIndex(start, false);
-        if (head.IsEmpty) return Rect.Empty;
-
-        var tail = Editor.GetRectFromCharacterIndex(start + length - 1, true);
-        if (tail.IsEmpty || Math.Abs(tail.Top - head.Top) > 0.5)
-            tail = Editor.GetRectFromCharacterIndex(start, true);   // 跨行/取不到：退化成单字符宽度
-
-        var left = head.Left;
-        var right = Math.Max(tail.Right, left + 1);
-        var top = Math.Min(head.Top, tail.Top);
-        var height = head.Height > 0 ? head.Height : 1;
-
-        return new Rect(left, top + 1, right - left, Math.Max(height - 2, 3));
-    }
-
-    /// <summary>正文可视区（不含滚动条），高亮只在里面画。</summary>
-    private Rect TextViewportRect()
-    {
-        var w = Editor.ActualWidth;
-        var h = Editor.ActualHeight;
-        if (w <= 0 || h <= 0) return Rect.Empty;
-
-        // TextBox 没有 ScrollViewer.ComputedXxx 可用，用 extent/viewport 判断滚动条在不在
-        if (Editor.ExtentWidth > Editor.ViewportWidth + 0.5)
-            w -= SystemParameters.VerticalScrollBarWidth;
-        if (Editor.ExtentHeight > Editor.ViewportHeight + 0.5)
-            h -= SystemParameters.HorizontalScrollBarHeight;
-
-        return new Rect(0, 0, Math.Max(w, 0), Math.Max(h, 0));
+        _highlighter.SetMarks(marks);
+        view.Redraw();
     }
 
     /// <summary>
     /// 命中位置如果正好被右上角浮着的查找面板压住，用户会以为"没高亮/没找到"。
     /// 这种时候把编辑区往上滚一点，让命中的行挪到面板下面来。
-    /// 注意 ScrollToVerticalOffset 的单位不是像素（是行），所以不自己换算，
-    /// 而是每次滚一个单位再量一次，滚到露出来就停；滚不动（到底/到顶）就放弃。
-    /// 文档已经在最顶上时挪不动——那几行确实会被面板压住，只能这样。
     /// </summary>
     private void EnsureNotBehindFindBar(int start, int length)
     {
         if (!IsFindBarOpen || FindBar.ActualHeight <= 0) return;
 
-        Editor.UpdateLayout();
-        if (Editor.VerticalOffset <= 0) return;
+        var view = Editor.TextArea.TextView;
+        if (!view.VisualLinesValid) view.EnsureVisualLines();
 
-        var origin = FindBar.TranslatePoint(new Point(0, 0), Editor);
+        var origin = FindBar.TranslatePoint(new Point(0, 0), view);
         var bar = new Rect(origin.X - 6, origin.Y - 6,
                            FindBar.ActualWidth + 12, FindBar.ActualHeight + 12);
 
-        var lastTop = double.NaN;
-        for (var step = 0; step < 80; step++)
+        var seg = new TextSegment { StartOffset = start, Length = Math.Max(1, length) };
+
+        for (var step = 0; step < 40; step++)
         {
-            var r = RectFor(start, length);
-            if (r.IsEmpty || !r.IntersectsWith(bar)) return;
+            var found = false;
+            var rect = Rect.Empty;
+            foreach (var r in BackgroundGeometryBuilder.GetRectsForSegment(view, seg))
+            {
+                rect = r;
+                found = true;
+                break;
+            }
+            if (!found || !rect.IntersectsWith(bar)) return;
 
-            if (!double.IsNaN(lastTop) && Math.Abs(r.Top - lastTop) < 0.5) return;   // 滚不动了
-            lastTop = r.Top;
+            var delta = bar.Bottom - rect.Top + 12;
+            if (delta <= 1) return;
 
-            Editor.ScrollToVerticalOffset(Math.Max(0, Editor.VerticalOffset - 1));
-            Editor.UpdateLayout();
+            var before = view.VerticalOffset;
+            Editor.ScrollToVerticalOffset(Math.Max(0, before - delta));
+            if (!view.VisualLinesValid) view.EnsureVisualLines();
+            if (Math.Abs(view.VerticalOffset - before) < 0.5) return;   // 到顶了，滚不动
         }
+    }
+
+    // ---------------------------------------------------------------- 语法高亮
+
+    private void ApplySyntaxHighlighting()
+    {
+        var kind = TextFormat.DetectKind(Path, Editor.Text);
+        IHighlightingDefinition? definition = null;
+
+        if (kind == TextKind.Json)
+            definition = HighlightingManager.Instance.GetDefinition("Json");
+        else if (kind == TextKind.Xml)
+            definition = HighlightingManager.Instance.GetDefinition("XML");
+
+        Editor.SyntaxHighlighting = definition;
     }
 
     // ---------------------------------------------------------------- 编辑状态
@@ -796,11 +970,12 @@ public partial class DocumentTab : UserControl
             ? Editor.Text.Length > 0
             : !string.Equals(Editor.Text, File.Text, StringComparison.Ordinal);
 
-    private void OnTextChanged(object sender, TextChangedEventArgs e)
+    private void OnTextChanged(object sender, EventArgs e)
     {
         if (_suppressText) return;
 
         RefreshMatchInfo();
+        ScheduleFoldUpdate();
 
         var dirty = ComputeDirty();
         if (dirty == _dirty) return;
@@ -809,47 +984,51 @@ public partial class DocumentTab : UserControl
         StateChanged?.Invoke(this, EventArgs.Empty);
     }
 
+    /// <summary>输入时不要每敲一个字就重算折叠，停手 350ms 再算。</summary>
+    private void ScheduleFoldUpdate()
+    {
+        if (Editor.Text.Length > FoldLimit) return;
+        _foldTimer.Stop();
+        _foldTimer.Start();
+    }
+
     // ---------------------------------------------------------------- 鼠标
 
     /// <summary>
     /// 双击选词 / 三击选行。
     ///
-    /// 为什么不直接修剪 WPF 的默认选区：TextBox 的"双击选词"是在 MouseUp 阶段才执行的
-    /// （它要等第三次点击来了才能判断是双击还是三击），所以 MouseDoubleClick（MouseDown 阶段）
-    /// 里拿到的选区还是上一次的，修剪等于没做，用户看到的仍然是 "void " 带着尾随空格。
-    /// 这里改在 PreviewMouseDown 自己算词边界并选中，彻底不带空白；
+    /// AvalonEdit 自带的双击会把词后面的空白一起选上（"void "），
+    /// 这里在 Preview 阶段自己按字符类别算词边界并选中，彻底不带空白；
     /// 三击选整行（不含换行符），和记事本一致。
     /// </summary>
     private void OnEditorPreviewMouseDown(object sender, MouseButtonEventArgs e)
     {
         if (e.ChangedButton != MouseButton.Left || e.ClickCount < 2) return;
 
-        var idx = Editor.GetCharacterIndexFromPoint(e.GetPosition(Editor), true);
-        if (idx < 0) return;   // 点在文本之外，交给默认处理
+        var pos = Editor.GetPositionFromPoint(e.GetPosition(Editor));
+        if (pos is null) return;
+
+        var doc = Editor.Document;
+        var hitLine = pos.Value.Line;
+        if (hitLine < 1 || hitLine > doc.LineCount) return;
+
+        var line = doc.GetLineByNumber(hitLine);
+        var column = Compat.Clamp(pos.Value.Column, 1, line.Length + 1);
+        var idx = line.Offset + column - 1;
 
         if (e.ClickCount >= 3)
         {
-            var line = Editor.GetLineIndexFromCharacterIndex(idx);
-            if (line < 0) return;
-            var start = Editor.GetCharacterIndexFromLineIndex(line);
-            var len = Editor.GetLineLength(line);
-            if (start < 0 || len <= 0) return;
-
-            // GetLineLength 把换行符算在内，选整行时要去掉尾部 \r\n（和记事本一致）
-            while (len > 0 && (Editor.Text[start + len - 1] == '\r' || Editor.Text[start + len - 1] == '\n'))
-                len--;
-            if (len <= 0) return;
-
-            Editor.Focus();
-            Editor.Select(start, len);
+            if (line.Length <= 0) return;
+            Editor.TextArea.Focus();
+            Editor.Select(line.Offset, line.Length);
             e.Handled = true;
             return;
         }
 
-        var (wordStart, wordLen) = SelectionTrim.WordAt(Editor.Text, idx);
+        var (wordStart, wordLen) = SelectionTrim.WordAt(doc.Text, idx);
         if (wordLen <= 0) return;
 
-        Editor.Focus();
+        Editor.TextArea.Focus();
         Editor.Select(wordStart, wordLen);
         e.Handled = true;
     }

@@ -437,6 +437,16 @@ public partial class MainWindow : Window
 
     private void OnJumpDocumentEnd(object sender, RoutedEventArgs e) => Active?.JumpToDocumentEnd();
 
+    private void OnFormat(object sender, RoutedEventArgs e)
+    {
+        if (Active is not { } doc) return;
+        doc.FormatDocument();
+    }
+
+    private void OnFoldAll(object sender, RoutedEventArgs e) => Active?.FoldAll(true);
+
+    private void OnUnfoldAll(object sender, RoutedEventArgs e) => Active?.FoldAll(false);
+
     private void OnExit(object sender, RoutedEventArgs e) => Close();
 
     // ---------------------------------------------------------------- 关闭窗口
@@ -469,7 +479,7 @@ public partial class MainWindow : Window
         _cfg.ActivePath = Active?.Path;
         _cfg.LastPath = Active?.Path ?? _cfg.LastPath;
         _cfg.WordWrap = WrapItem.IsChecked;
-        _cfg.FontSize = Active is { } a ? a.TextBoxControl.FontSize : _cfg.FontSize;
+        _cfg.FontSize = Active is { } a ? a.EditorFontSize : _cfg.FontSize;
         _cfg.ConfirmOnExternalChange = ConfirmItem.IsChecked;
         _cfg.Save();
     }
@@ -557,7 +567,7 @@ public partial class MainWindow : Window
     {
         foreach (var doc in Docs)
         {
-            doc.ApplySettings(WrapItem.IsChecked, doc.TextBoxControl.FontSize);
+            doc.ApplySettings(WrapItem.IsChecked, doc.EditorFontSize);
         }
     }
 
@@ -567,7 +577,7 @@ public partial class MainWindow : Window
 
     private void ChangeFont(int delta)
     {
-        var size = Compat.Clamp((Active?.TextBoxControl.FontSize ?? _cfg.FontSize) + delta, 9, 32);
+        var size = Compat.Clamp((Active?.EditorFontSize ?? _cfg.FontSize) + delta, 9, 32);
         foreach (var doc in Docs) doc.ApplySettings(WrapItem.IsChecked, size);
         _cfg.FontSize = size;
     }
@@ -580,6 +590,7 @@ public partial class MainWindow : Window
             $".NET {Environment.Version} · WPF\n轮询间隔 {PollMs} ms\n\n" +
             "默认策略：外部修改时静默以磁盘内容为准。\n\n" +
             "Ctrl+N 新建文本文档 · Ctrl+F 查找 · Ctrl+H 替换 · Ctrl+W 关闭标签 · Ctrl+Tab 切换标签\n" +
+            "Ctrl+Shift+F 格式化 JSON / XML · Ctrl+Shift+[ 折叠 · Ctrl+Shift+] 展开\n" +
             "End 跳到行尾 · Ctrl+End 跳到全文最后",
             "关于",
             MessageBoxButton.OK,
@@ -693,7 +704,8 @@ public partial class MainWindow : Window
         var ctrl = (Keyboard.Modifiers & ModifierKeys.Control) != 0;
         var shift = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
 
-        if (ctrl && e.Key == Key.N) { OnNewTab(this, new RoutedEventArgs()); e.Handled = true; }
+        if (ctrl && shift && e.Key == Key.F) { OnFormat(this, new RoutedEventArgs()); e.Handled = true; }
+        else if (ctrl && e.Key == Key.N) { OnNewTab(this, new RoutedEventArgs()); e.Handled = true; }
         else if (ctrl && e.Key == Key.O) { OnOpen(this, new RoutedEventArgs()); e.Handled = true; }
         else if (ctrl && e.Key == Key.S) { if (shift) OnSaveAs(this, new RoutedEventArgs()); else OnSave(this, new RoutedEventArgs()); e.Handled = true; }
         else if (ctrl && e.Key == Key.F) { OnFind(this, new RoutedEventArgs()); e.Handled = true; }

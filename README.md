@@ -23,23 +23,36 @@
 
 | 路径 | 说明 |
 |---|---|
-| `dist-fx\TxtLiveSync.exe` | **主程序（.NET Framework 4.8），约 130 KB**，已内嵌图标；Win10 1903+ / Win11 自带运行时，拷过去双击就能用 |
-| `dist-wpf\TxtLiveSync.exe` | 备选：.NET 8 框架依赖，单文件约 290 KB；要求装有 .NET Desktop Runtime 8/9/10 |
+| `dist-fx\TxtLiveSync.exe` + `ICSharpCode.AvalonEdit.dll` | **主程序（.NET Framework 4.8），约 143 KB**，已内嵌图标；Win10 1903+ / Win11 自带运行时。两个文件要放在一起 |
+| `dist-wpf\TxtLiveSync.exe` | 备选：.NET 8 框架依赖，单文件约 920 KB（AvalonEdit 已打进单文件）；要求装有 .NET Desktop Runtime 8/9/10 |
 | `dist-wpf-standalone\TxtLiveSync.exe` | 备选：.NET 8 自包含，单文件约 63 MB；什么都不用装（不入库，按需构建） |
 | `TxtLiveSync.Wpf\` | 源码（`MainWindow` 外壳 + `DocumentTab` 单个文档页 + `Core\` 兼容层与同步引擎 + `SingleInstance`） |
+| `lib\` | AvalonEdit 的编译产物（net462 / net8.0-windows 各一份）+ MIT 许可证；公司网络取不到 NuGet，所以从源码本地编译后入库 |
 | `示例.txt` | 演示文件（UTF-8 / CRLF） |
 | `界面截图.png` | 实际运行截图 |
-| `tests\LogicTests\` | 逻辑单元测试（C#，84 项断言，零依赖） |
+| `tests\LogicTests\` | 逻辑单元测试（C#，114 项断言，零依赖） |
 | `v1-python\` | 第一版 Python 实现，仅作备份，日常工作不用它 |
 
 ## 技术栈与依赖
 
 - **.NET Framework 4.8 + WPF**（主目标，`net48`）。4.8 随 Windows 10 1903+ / Windows 11 一起分发，**目标机器无需安装任何运行时**
 - 同一份源码多目标编译：`net48` 与 `net8.0-windows`（备选），两代都有的 API 之外的地方由 `Core\Compat.cs` 补齐
-- **零第三方 NuGet 包**，只用 BCL。配置的 JSON 读写用自带的 `Core\JsonLite.cs`（`System.Text.Json` 在 4.8 里没有，走 NuGet 会让分发变成 exe + 一堆 dll）；旧版 `System.Text.Json` 写的配置文件照样能读
-- .NET Framework 版产物是**单个 exe + 一个 exe.config**，无需安装、无需写注册表，删掉即卸载
-- 备选的 .NET 8 版：框架依赖 290 KB（装 Runtime 8/9/10 任一可跑），自包含 63 MB（零依赖）
+- **唯一的第三方库：AvalonEdit**（MIT，源码在 `lib\` 里编好的 dll）。编辑器从 `TextBox` 换成它，才可能有折叠、行号、JSON/XML 语法高亮和大文件虚拟化 —— TextBox 没有行模型，折不了
+- **不用 NuGet 还原**：`lib\net462` / `lib\net8.0-windows` 各放一份 AvalonEdit.dll，csproj 用 `<Reference HintPath>` 引入。AvalonEdit 6.3.2 原本依赖 `Microsoft.SourceLink.GitHub`（只影响调试符号），本地编译时已去掉
+- 配置的 JSON 读写仍用自带的 `Core\JsonLite.cs`（`System.Text.Json` 在 4.8 里没有），旧版配置文件照样能读
+- .NET Framework 版产物是**单个 exe + exe.config + AvalonEdit.dll**（.NET 8 版把 dll 打进单文件），无需安装、无需写注册表，删掉即卸载
+- 备选的 .NET 8 版：框架依赖 920 KB（装 Runtime 8/9/10 任一可跑），自包含 63 MB（零依赖）
 - 轮询间隔 400 ms，常驻内存约 60 MB
+
+### `lib\` 里的 AvalonEdit 是怎么来的
+
+公司网络把 nuget.org 重定向到一个只有零星版本的镜像，`PackageReference` 装不上，所以 dll 是本机从源码编的：
+
+1. 取 GitHub `icsharpcode/AvalonEdit` 的 master（v6.3.2）
+2. 删掉 `Microsoft.SourceLink.GitHub` 引用（只影响调试符号，但会触发 NuGet 还原）
+3. `dotnet build -c Release -f net462 -o lib\net462`，再 `-f net8.0-windows -o lib\net8.0-windows`
+
+许可证见 `lib\LICENSE-AvalonEdit.txt`（MIT）。升级版本时重复这三步，项目代码不用改。
 
 源码体量对比：v1（Python/tkinter）约 900 行，v2（WPF）约 1000 行 —— 因为 WPF 的布局/状态栏/图标都不用手搓，多出来的主要是多标签与每个标签独立的同步状态。
 
@@ -51,8 +64,12 @@
 | 查找 / 替换 | `Ctrl+F` 在编辑区右上角浮出小面板（同 VS Code）：计数 `3/12`、`Aa` 区分大小写、上一个/下一个、无匹配时输入框变红显示「无结果」；`Ctrl+H` 多一行替换框，可逐处替换或全部替换 |
 | 多标签 | 一个文件一个标签，标签上有文件名 + 未保存标记 `●` + `✕` 关闭按钮；`Ctrl+W` 关当前、`Ctrl+Tab` 切换；拖入多个文件一次开多个标签；同一个文件不重复开，自动切过去 |
 | 新建文档 | 标签条右端的 `＋`（或 `文件 → 新建文本文档` / `Ctrl+N`）开一个空白文档，标签名是 `未命名 1`、`未命名 2`…；第一次保存走「另存为」让用户选位置，无标签时的空状态页上也有入口；空白新文档写脏了同样会在关闭时问保存 |
+| 编辑区 | AvalonEdit：行号、当前行高亮、鼠标滚轮平滑滚动、大文件按可视行渲染；查找色块画在文字下面的背景层（当前命中 `#99C9EF`，其余 `#E6E6E6`），不会盖住文字，也不影响普通选区 |
+| 折叠 | 左侧边距的 `＋/－` 按钮：JSON 按 `{}` `[]` 配对、XML 按元素配对（注释/CDATA/属性里的括号不参与），单行的块不产生标记；`Ctrl+Shift+[` 折叠当前块、`Ctrl+Shift+]` 展开，`视图 → 全部折叠/全部展开`；输入时 350 ms 防抖重算，>2 MB 的文件不折叠 |
+| 格式化 | `Ctrl+Shift+F`（或 `编辑 → 格式化 JSON / XML`）：JSON 按 2 空格重排（空对象/空数组保持 `{}` `[]`，字符串里的括号逗号原样保留），XML 按 2 空格重排（保留注释、自闭合、属性顺序）。走 `Document.Replace` 所以 **Ctrl+Z 能撤回**；语法有误时报出「第几行第几列」并**不动正文** |
+| 语法高亮 | 按扩展名挂 JSON / XML 的 xshd 定义（`.json`；`.xml .xaml .config .csproj .resx .svg .xsd .xsl .plist .nuspec`…），其它文件不加高亮 |
 | 关标签保护 | 标签有未保存修改时，关闭会问「保存 / 不保存 / 取消」，取消则不关；关窗口时逐个标签问，任一个取消就整体不关 |
-| 快速打开 | 同步读文件塞进 TextBox；启动参数（可多个）直接开成标签 |
+| 快速打开 | 同步读文件塞进编辑器；启动参数（可多个）直接开成标签 |
 | 单实例 | 命名互斥体 + 命名管道：双击 .txt 时若已有窗口在跑，把路径转发过去再退出，不产生第二个进程；互斥体/管道名带 exe 路径哈希，不同目录的副本互不干扰；转发失败自动退回"各开一个窗口" |
 | 外部自动同步 | 400 ms `DispatcherTimer` 轮询所有标签，每个标签独立比较自己的 `(mtime_ticks, size)`，变了就重读 |
 | 冲突策略（核心） | **默认静默以外部为准**，本地未保存内容也直接覆盖，仅状态栏提示"本地未保存的内容已被磁盘版本覆盖" |
@@ -68,7 +85,7 @@
 
 > 第 2~4 节用的是本机 UI Automation / 截图脚本，里面写死了本机绝对路径，因此**没有随仓库发布**；下面是当时的真实输出记录。
 
-### 1. 逻辑层（C# 测试，80 项断言全过）
+### 1. 逻辑层（C# 测试，114 项断言全过）
 
 ```
 dotnet run --project tests\LogicTests
@@ -146,7 +163,7 @@ dotnet publish TxtLiveSync.Wpf\TxtLiveSync.Wpf.csproj -c Release -f net8.0-windo
 
 ## 快捷键
 
-`Ctrl+N` 新建文本文档 · `Ctrl+O` 打开（可多选） · `Ctrl+S` 保存 · `Ctrl+Shift+S` 另存为 · `F5` 从磁盘重新加载 · `Ctrl+F` 查找 · `Ctrl+H` 替换 · `F3` 查找下一个 · `Esc` 关闭查找面板 · `Ctrl+W` 关闭当前标签 · `Ctrl+Tab` / `Ctrl+Shift+Tab` 切换标签 · `Ctrl+=` / `Ctrl+-` 字号 · `End` 跳到行尾 · `Ctrl+End` 跳到全文最后（加 `Shift` 为扩选）
+`Ctrl+N` 新建文本文档 · `Ctrl+O` 打开（可多选） · `Ctrl+S` 保存 · `Ctrl+Shift+S` 另存为 · `F5` 从磁盘重新加载 · `Ctrl+F` 查找 · `Ctrl+H` 替换 · `F3` 查找下一个 · `Esc` 关闭查找面板 · `Ctrl+Shift+F` 格式化 JSON/XML · `Ctrl+Shift+[` / `Ctrl+Shift+]` 折叠 / 展开当前块 · `Ctrl+W` 关闭当前标签 · `Ctrl+Tab` / `Ctrl+Shift+Tab` 切换标签 · `Ctrl+=` / `Ctrl+-` 字号 · `End` 跳到行尾 · `Ctrl+End` 跳到全文最后（加 `Shift` 为扩选）
 
 ## 配置位置
 

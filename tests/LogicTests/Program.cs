@@ -71,6 +71,8 @@ internal static class Program
             SyncTests();
             ConfigTests();
             SelectionTests();
+            FormatTests();
+            FoldTests();
         }
         catch (Exception ex)
         {
@@ -452,5 +454,83 @@ internal static class Program
                 File.WriteAllBytes(path, backup);
             }
         }
+    }
+
+    // ---------------------------------------------------------------- 格式化
+
+    private static void FormatTests()
+    {
+        Section("格式化：JSON");
+
+        const string compact =
+            "{\"name\":\"a\",\"list\":[1,2,{\"x\":true}],\"empty\":{},\"emptyArr\":[],\"s\":\"a,}\\\"b\"}";
+
+        Check("识别：.json 当 JSON", TextFormat.DetectKind(@"C:\t\a.json", "") == TextKind.Json);
+        Check("识别：.txt 不当 JSON", TextFormat.DetectKind(@"C:\t\a.txt", "{}") == TextKind.Plain);
+        Check("识别：无路径按内容猜", TextFormat.DetectKind(null, "  [1,2]") == TextKind.Json);
+
+        Check("JSON 格式化成功", TextFormat.TryFormat(compact, TextKind.Json, out var pretty, out var err), err);
+        Check("JSON 每层缩进 2 空格", pretty.Contains("\r\n  \"name\": \"a\""), pretty);
+        Check("JSON 空对象保持 {}", pretty.Contains("\"empty\": {}"), pretty);
+        Check("JSON 空数组保持 []", pretty.Contains("\"emptyArr\": []"), pretty);
+        Check("JSON 字符串里的括号和逗号不被拆开", pretty.Contains("\"s\": \"a,}\\\"b\""), pretty);
+        Check("JSON 格式化幂等（再排一次不变）",
+            TextFormat.TryFormat(pretty, TextKind.Json, out var again, out _) && again == pretty);
+
+        Check("JSON 括号没闭合：报错且不改正文",
+            !TextFormat.TryFormat("{\"a\":1", TextKind.Json, out var unchanged, out var e1)
+            && unchanged == "{\"a\":1" && e1.Contains("没有闭合"), e1);
+        Check("JSON 多一个右括号：报错",
+            !TextFormat.TryFormat("{\"a\":1}}", TextKind.Json, out _, out var e2) && e2.Contains("多了"), e2);
+        Check("JSON 非法数字（12abc）：报错",
+            !TextFormat.TryFormat("{\"a\":12abc}", TextKind.Json, out _, out var e3), e3);
+
+        Section("格式化：XML");
+
+        const string xml = "<root><a x=\"1\">t</a><b/><!--c--><c><d>1</d></c></root>";
+        Check("XML 格式化成功", TextFormat.TryFormat(xml, TextKind.Xml, out var px, out var ex), ex);
+        Check("XML 子元素换行缩进", px.Contains("\r\n  <a x=\"1\">t</a>"), px);
+        Check("XML 自闭合标签保留", px.Contains("<b />"), px);
+        Check("XML 注释保留", px.Contains("<!--c-->"), px);
+        Check("XML 未闭合标签：报错且不改正文",
+            !TextFormat.TryFormat("<a><b></a>", TextKind.Xml, out var same, out var ex2)
+            && same == "<a><b></a>" && ex2.Contains("XML 有误"), ex2);
+        Check("识别：.config 当 XML", TextFormat.DetectKind("a.config", "") == TextKind.Xml);
+    }
+
+    // ---------------------------------------------------------------- 折叠区间
+
+    private static void FoldTests()
+    {
+        Section("折叠区间：JSON");
+
+        const string json = "{\r\n  \"a\": {\r\n    \"b\": 1\r\n  },\r\n  \"c\": [1,\r\n2]\r\n}";
+        var ranges = FoldingRanges.Build(json, TextKind.Json);
+
+        Check("JSON 折叠：三段（外层对象、内层对象、数组）", ranges.Count == 3, ranges.Count.ToString());
+        Check("JSON 折叠：最外层覆盖整段",
+            ranges.Count > 0 && ranges[0].StartOffset == 0 && ranges[0].EndOffset == json.Length);
+        Check("JSON 折叠：数组也被识别", ranges.Any(r => json[r.StartOffset] == '['));
+        Check("JSON 折叠：区间按起点升序",
+            ranges.Zip(ranges.Skip(1), (a, b) => a.StartOffset <= b.StartOffset).All(x => x));
+        Check("JSON 折叠：单行对象不产生折叠",
+            FoldingRanges.Build("{\"a\":1}", TextKind.Json).Count == 0);
+        Check("JSON 折叠：字符串里的括号不算配对",
+            FoldingRanges.Build("{\r\n  \"a\": \"{\"\r\n}", TextKind.Json).Count == 1);
+
+        Section("折叠区间：XML");
+
+        const string xml = "<r>\r\n  <a>\r\n    <b/>\r\n  </a>\r\n  <!-- <notatag> -->\r\n  <c attr=\">\">\r\n  </c>\r\n</r>";
+        var xr = FoldingRanges.Build(xml, TextKind.Xml);
+
+        Check("XML 折叠：三段（r、a、c）", xr.Count == 3, xr.Count.ToString());
+        Check("XML 折叠：根元素覆盖整段",
+            xr.Count > 0 && xr[0].StartOffset == 0 && xr[0].EndOffset == xml.Length);
+        Check("XML 折叠：自闭合标签不折叠", !xr.Any(r => r.StartOffset == xml.IndexOf("<b/>")));
+        Check("XML 折叠：注释里的标签不参与配对", !xr.Any(r => r.StartOffset == xml.IndexOf("<!--")));
+        Check("XML 折叠：属性值里的 > 不截断标签",
+            xr.Any(r => r.StartOffset == xml.IndexOf("<c attr")), "没识别到 <c attr=\">\">");
+        Check("XML 折叠：纯文本不当折叠，返回空",
+            FoldingRanges.Build("hello\r\nworld", TextKind.Plain).Count == 0);
     }
 }

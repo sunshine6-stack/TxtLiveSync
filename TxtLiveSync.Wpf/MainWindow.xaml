@@ -196,6 +196,9 @@
             <MenuItem Header="替换…" Click="OnReplace" InputGestureText="Ctrl+H" />
             <MenuItem Header="查找下一个" Click="OnFindNext" InputGestureText="F3" />
             <Separator />
+            <MenuItem Header="格式化 JSON / XML" Click="OnFormat" InputGestureText="Ctrl+Shift+F"
+                      ToolTip="按两空格缩进重排 JSON 或 XML；Ctrl+Z 可撤回，格式有误时不会改动正文" />
+            <Separator />
             <MenuItem Header="跳到当前行行尾" Click="OnJumpLineEnd" InputGestureText="End" />
             <MenuItem Header="跳到全文最后" Click="OnJumpDocumentEnd" InputGestureText="Ctrl+End" />
           </MenuItem>
@@ -203,6 +206,9 @@
           <MenuItem Header="视图">
             <MenuItem x:Name="WrapItem" Header="自动换行" IsCheckable="True"
                       Checked="OnWrapChanged" Unchecked="OnWrapChanged" />
+            <Separator />
+            <MenuItem Header="全部折叠" Click="OnFoldAll" InputGestureText="Ctrl+Shift+[" />
+            <MenuItem Header="全部展开" Click="OnUnfoldAll" InputGestureText="Ctrl+Shift+]" />
             <Separator />
             <MenuItem Header="增大字号" Click="OnFontBigger" InputGestureText="Ctrl+=" />
             <MenuItem Header="减小字号" Click="OnFontSmaller" InputGestureText="Ctrl+-" />

@@ -42,4 +42,22 @@
     <Resource Include="app.ico" />
   </ItemGroup>
 
+  <!-- AvalonEdit：折叠 / 语法高亮 / 大文件虚拟化。
+       公司网络的 NuGet 不可用，所以 dll 是本地从源码编译后放在 lib\ 里（MIT，见 lib\LICENSE-AvalonEdit.txt）。
+       net48 侧用 net462 那一份，.NET 8 侧用 net8.0-windows 那一份。 -->
+  <ItemGroup Condition="'$(TargetFramework)' == 'net48'">
+    <Reference Include="ICSharpCode.AvalonEdit">
+      <HintPath>..\lib\net462\ICSharpCode.AvalonEdit.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'net8.0-windows'">
+    <Reference Include="ICSharpCode.AvalonEdit">
+      <HintPath>..\lib\net8.0-windows\ICSharpCode.AvalonEdit.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+
+
 </Project>
