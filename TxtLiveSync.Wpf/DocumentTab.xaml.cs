@@ -1076,15 +1076,26 @@ public partial class DocumentTab : UserControl
 
     private void ApplySyntaxHighlighting()
     {
+        Editor.SyntaxHighlighting = ResolveHighlighting();
+    }
+
+    /// <summary>
+    /// 先按扩展名挂内置语法定义（.cs / .py / .js / .java / .sql …）。
+    /// 扩展名认不出来时退回原来的内容嗅探，只认 JSON / XML ——
+    /// 这样「新建文档」里直接粘一段 JSON 也照样有颜色。
+    /// </summary>
+    private IHighlightingDefinition? ResolveHighlighting()
+    {
+        // 超大文件不挂定义：逐行正则着色在这种文件上只会拖慢滚动
+        if (Editor.Text.Length > FoldLimit) return null;
+
+        var definition = SyntaxHighlightingMap.Resolve(Path);
+        if (definition is not null) return definition;
+
         var kind = TextFormat.DetectKind(Path, Editor.Text);
-        IHighlightingDefinition? definition = null;
-
-        if (kind == TextKind.Json)
-            definition = HighlightingManager.Instance.GetDefinition("Json");
-        else if (kind == TextKind.Xml)
-            definition = HighlightingManager.Instance.GetDefinition("XML");
-
-        Editor.SyntaxHighlighting = definition;
+        if (kind == TextKind.Json) return HighlightingManager.Instance.GetDefinition("Json");
+        if (kind == TextKind.Xml) return HighlightingManager.Instance.GetDefinition("XML");
+        return null;
     }
 
     // ---------------------------------------------------------------- 编辑状态

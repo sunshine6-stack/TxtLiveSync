@@ -597,11 +597,12 @@ public partial class MainWindow : Window
         MessageBox.Show(
             this,
             $"TxtLiveSync{version}\n\n" +
-            "轻量级 TXT / JSON / XML 实时同步编辑器（多标签）\n" +
+            "轻量级 TXT / JSON / XML / 代码文本 实时同步编辑器（多标签）\n" +
             $"运行时 {RuntimeLabel} · WPF · 同步间隔 {PollMs} ms\n\n" +
             "外部修改时静默以磁盘内容为准；编码、BOM、换行保持原样。\n\n" +
             "功能：拖拽打开 · 新建文本文档 · 查找替换 · JSON/XML 折叠与格式化 ·\n" +
-            "语法高亮 · 双击选词并标出同名处 · 单实例复用已开的窗口\n\n" +
+            "语法高亮（C# / JS / Python / Java / C++ / SQL / HTML / CSS / PHP / MD …）·\n" +
+            "双击选词并标出同名处 · 单实例复用已开的窗口\n\n" +
             "快捷键\n" +
             "Ctrl+N 新建 · Ctrl+O 打开 · Ctrl+S 保存 · Ctrl+Shift+S 另存为 · F5 重新载入\n" +
             "Ctrl+F 查找 · Ctrl+H 替换 · F3 下一个 · Ctrl+W 关闭标签 · Ctrl+Tab 切换标签\n" +

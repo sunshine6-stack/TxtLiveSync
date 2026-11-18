@@ -37,7 +37,7 @@
 
 - **.NET Framework 4.8 + WPF**（主目标，`net48`）。4.8 随 Windows 10 1903+ / Windows 11 一起分发，**目标机器无需安装任何运行时**
 - 同一份源码多目标编译：`net48` 与 `net8.0-windows`（备选），两代都有的 API 之外的地方由 `Core\Compat.cs` 补齐
-- **唯一的第三方库：AvalonEdit**（MIT，源码在 `lib\` 里编好的 dll）。编辑器从 `TextBox` 换成它，才可能有折叠、行号、JSON/XML 语法高亮和大文件虚拟化 —— TextBox 没有行模型，折不了
+- **唯一的第三方库：AvalonEdit**（MIT，源码在 `lib\` 里编好的 dll）。编辑器从 `TextBox` 换成它，才可能有折叠、行号、语法高亮和大文件虚拟化 —— TextBox 没有行模型，折不了
 - **不用 NuGet 还原**：`lib\net462` / `lib\net8.0-windows` 各放一份 AvalonEdit.dll，csproj 用 `<Reference HintPath>` 引入。AvalonEdit 6.3.2 原本依赖 `Microsoft.SourceLink.GitHub`（只影响调试符号），本地编译时已去掉
 - 配置的 JSON 读写仍用自带的 `Core\JsonLite.cs`（`System.Text.Json` 在 4.8 里没有），旧版配置文件照样能读
 - .NET Framework 版产物是**单个 exe + exe.config + AvalonEdit.dll**（.NET 8 版把 dll 打进单文件），无需安装、无需写注册表，删掉即卸载
@@ -67,7 +67,7 @@
 | 编辑区 | AvalonEdit：行号、当前行高亮、鼠标滚轮平滑滚动、大文件按可视行渲染；查找色块画在文字下面的背景层（当前命中 `#99C9EF`，其余 `#E6E6E6`），不会盖住文字，也不影响普通选区 |
 | 折叠 | 左侧边距的 `＋/－` 按钮：JSON 按 `{}` `[]` 配对、XML 按元素配对（注释/CDATA/属性里的括号不参与），单行的块不产生标记；`Ctrl+Shift+[` 折叠当前块、`Ctrl+Shift+]` 展开，`视图 → 全部折叠/全部展开`；输入时 350 ms 防抖重算，>2 MB 的文件不折叠 |
 | 格式化 | `Ctrl+Shift+F`（或 `编辑 → 格式化 JSON / XML`）：JSON 按 2 空格重排（空对象/空数组保持 `{}` `[]`，字符串里的括号逗号原样保留），XML 按 2 空格重排（保留注释、自闭合、属性顺序）。走 `Document.Replace` 所以 **Ctrl+Z 能撤回**；语法有误时报出「第几行第几列」并**不动正文** |
-| 语法高亮 | 按扩展名挂 JSON / XML 的 xshd 定义（`.json`；`.xml .xaml .config .csproj .resx .svg .xsd .xsl .plist .nuspec`…），其它文件不加高亮 |
+| 语法高亮 | 按扩展名挂 AvalonEdit **dll 自带的** xshd 定义（21 份，零额外体积）：C#/VB/Java/C/C++（`.cs .csx .vb .java .c .h .cpp .hpp .cc .cxx .hxx`）、JavaScript（`.js .mjs .cjs .jsx`）、Python（`.py .pyw .pyi`）、PowerShell（`.ps1 .psm1 .psd1`）、PHP、HTML/ASP、CSS、T-SQL（`.sql`）、Markdown（`.md`）、JSON（`.json .jsonc`）、XML 家族（`.xml .xaml .config .csproj .resx .svg .xsd .xsl .plist .nuspec`…）；`.txt` `.log` 和认不出的扩展名保持纯文本，>2 MB 不挂高亮 |
 | 同名高亮 | 双击一个词，全文（可视区内）与它相同的整词铺一层很淡的蓝 `#E1EEFC`，双击的那个由选区交代；只认整词（`count` 不会命中 `counter`/`account`）、不区分大小写；空白、换行、单个标点不高亮；点走、拖选、打字、`Esc`、开查找都会收掉 |
 | 关标签保护 | 标签有未保存修改时，关闭会问「保存 / 不保存 / 取消」，取消则不关；关窗口时逐个标签问，任一个取消就整体不关 |
 | 快速打开 | 同步读文件塞进编辑器；启动参数（可多个）直接开成标签 |
