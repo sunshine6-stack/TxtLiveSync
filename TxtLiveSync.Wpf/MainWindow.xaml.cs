@@ -20,6 +20,13 @@ public partial class MainWindow : Window
 {
     private const int PollMs = 400;
 
+    // 关于里显示的运行时名。net48 的 Environment.Version 会打出 4.0.30319.xxxx，对用户没意义。
+#if NETFRAMEWORK
+    private const string RuntimeLabel = ".NET Framework 4.8";
+#else
+    private const string RuntimeLabel = ".NET 8 桌面运行时";
+#endif
+
     /// <summary>标签头里的可视元素，脏标记变化时只改这几个。</summary>
     private sealed class TabChrome
     {
@@ -584,15 +591,25 @@ public partial class MainWindow : Window
 
     private void OnAbout(object sender, RoutedEventArgs e)
     {
+        var ver = typeof(MainWindow).Assembly.GetName().Version;
+        var version = ver is null ? "" : $" v{ver.ToString(3)}";
+
         MessageBox.Show(
             this,
-            "TxtLiveSync\n\n轻量级 TXT 实时同步查看 / 编辑器（多标签）\n" +
-            $".NET {Environment.Version} · WPF\n轮询间隔 {PollMs} ms\n\n" +
-            "默认策略：外部修改时静默以磁盘内容为准。\n\n" +
-            "Ctrl+N 新建文本文档 · Ctrl+F 查找 · Ctrl+H 替换 · Ctrl+W 关闭标签 · Ctrl+Tab 切换标签\n" +
-            "Ctrl+Shift+F 格式化 JSON / XML · Ctrl+Shift+[ 折叠 · Ctrl+Shift+] 展开\n" +
-            "End 跳到行尾 · Ctrl+End 跳到全文最后",
-            "关于",
+            $"TxtLiveSync{version}\n\n" +
+            "轻量级 TXT / JSON / XML 实时同步编辑器（多标签）\n" +
+            $"运行时 {RuntimeLabel} · WPF · 同步间隔 {PollMs} ms\n\n" +
+            "外部修改时静默以磁盘内容为准；编码、BOM、换行保持原样。\n\n" +
+            "功能：拖拽打开 · 新建文本文档 · 查找替换 · JSON/XML 折叠与格式化 ·\n" +
+            "语法高亮 · 双击选词 · 单实例复用已开的窗口\n\n" +
+            "快捷键\n" +
+            "Ctrl+N 新建 · Ctrl+O 打开 · Ctrl+S 保存 · Ctrl+Shift+S 另存为 · F5 重新载入\n" +
+            "Ctrl+F 查找 · Ctrl+H 替换 · F3 下一个 · Ctrl+W 关闭标签 · Ctrl+Tab 切换标签\n" +
+            "Ctrl+Shift+F 格式化 JSON/XML · Ctrl+Shift+[ 折叠 · Ctrl+Shift+] 展开 · Ctrl+= / Ctrl+- 字号\n" +
+            "End 跳到行尾 · Ctrl+End 跳到全文最后（加 Shift 为扩选）\n\n" +
+            "编辑器内核 AvalonEdit（MIT License，© ICSharpCode 团队）\n" +
+            "https://github.com/sunshine6-stack/TxtLiveSync",
+            "关于 TxtLiveSync",
             MessageBoxButton.OK,
             MessageBoxImage.Information);
     }
