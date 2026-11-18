@@ -73,6 +73,7 @@ internal static class Program
             SelectionTests();
             FormatTests();
             FoldTests();
+            OccurrenceTests();
         }
         catch (Exception ex)
         {
@@ -532,5 +533,60 @@ internal static class Program
             xr.Any(r => r.StartOffset == xml.IndexOf("<c attr")), "没识别到 <c attr=\">\">");
         Check("XML 折叠：纯文本不当折叠，返回空",
             FoldingRanges.Build("hello\r\nworld", TextKind.Plain).Count == 0);
+    }
+
+    // ---------------------------------------------------------------- 同名单词高亮
+
+    private static void OccurrenceTests()
+    {
+        Section("同名单词：整词匹配");
+
+        const string code =
+            "int count = 0;\r\n" +
+            "counter = count + 1;\r\n" +
+            "account = \"count\";  // count\r\n" +
+            "Count = COUNT;\r\n";
+
+        var hits = OccurrenceMatcher.Find(code, "count", 0, code.Length, 100);
+        Check("同名：整词命中 6 处（字符串、注释、Count、COUNT 都算）", hits.Count == 6, hits.Count.ToString());
+        Check("同名：不含 counter 里的 count",
+            !hits.Any(h => code.Substring(h.Start, 3) == "cou" && string.Compare(code, h.Start, "counter", 0, 7, StringComparison.OrdinalIgnoreCase) == 0));
+        Check("同名：不含 account 里的 count",
+            !hits.Any(h => h.Start > 0 && SelectionTrim.ClassOf(code[h.Start - 1]) == SelectionTrim.CharClass.Word));
+        Check("同名：命中位置可以从原文切出同一个词",
+            hits.All(h => string.Compare(code, h.Start, "count", 0, 5, StringComparison.OrdinalIgnoreCase) == 0));
+
+        Section("同名单词：边界与开关");
+
+        const string sym = "a->b; a->>c; a- b";
+        var symHits = OccurrenceMatcher.Find(sym, "->", 0, sym.Length, 100);
+        Check("同名：符号整段（-> 不命中 ->>）", symHits.Count == 1, symHits.Count.ToString());
+
+        Check("同名：区分大小写时只算原样写法",
+            OccurrenceMatcher.Find("void VOID Void", "void", 0, 15, 100, caseSensitive: true).Count == 1);
+        Check("同名：不区分大小写是默认行为",
+            OccurrenceMatcher.Find("void VOID Void", "void", 0, 15, 100).Count == 3);
+
+        var limitHits = OccurrenceMatcher.Find("x x x x x", "x", 0, 9, 3);
+        Check("同名：超过上限就截断", limitHits.Count == 3, limitHits.Count.ToString());
+
+        var windowHits = OccurrenceMatcher.Find("abc abc abc", "abc", 4, 11, 100);
+        Check("同名：只扫给定区间", windowHits.Count == 2 && windowHits[0].Start == 4,
+            windowHits.Count + "/" + (windowHits.Count > 0 ? windowHits[0].Start.ToString() : "-"));
+
+        Section("同名单词：不值得高亮的输入");
+
+        Check("同名：空白不高亮", !OccurrenceMatcher.IsWorthHighlighting("   "));
+        Check("同名：单个标点不高亮", !OccurrenceMatcher.IsWorthHighlighting(","));
+        Check("同名：空串不高亮", !OccurrenceMatcher.IsWorthHighlighting(""));
+        Check("同名：null 不高亮", !OccurrenceMatcher.IsWorthHighlighting(null));
+        Check("同名：含换行不高亮", !OccurrenceMatcher.IsWorthHighlighting("a\r\nb"));
+        Check("同名：超长词不高亮",
+            !OccurrenceMatcher.IsWorthHighlighting(new string('a', OccurrenceMatcher.MaxWordLength + 1)));
+        Check("同名：普通标识符高亮", OccurrenceMatcher.IsWorthHighlighting("_count9"));
+        Check("同名：中文高亮", OccurrenceMatcher.IsWorthHighlighting("文件"));
+        Check("同名：多字符符号高亮（=>）", OccurrenceMatcher.IsWorthHighlighting("=>"));
+        Check("同名：空白词返回空结果",
+            OccurrenceMatcher.Find("a  b", " ", 0, 4, 100).Count == 0);
     }
 }

@@ -53,7 +53,11 @@ public static class SelectionTrim
         return (a, b - a);
     }
 
-    private enum CharClass { Word, Symbol, Space, Break }
+    /// <summary>字符类别：双击选词按它切段，「同名单词高亮」按它判整词边界。</summary>
+    public enum CharClass { Word, Symbol, Space, Break }
+
+    /// <summary>取一个字符的类别（对外公开，供 <see cref="OccurrenceMatcher"/> 判边界）。</summary>
+    public static CharClass ClassOf(char c) => Classify(c);
 
     private static CharClass Classify(char c)
     {

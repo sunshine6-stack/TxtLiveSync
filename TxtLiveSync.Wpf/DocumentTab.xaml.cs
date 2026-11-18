@@ -41,7 +41,14 @@ public partial class DocumentTab : UserControl
     /// <summary>当前命中的起点（-1 = 还没有）。命中只放光标不选中，色块由背景渲染层画。</summary>
     private int _matchStart = -1;
 
+    /// <summary>双击选中、正在标同名单词的那个词（空 = 没在标）。</summary>
+    private string _occurrenceWord = "";
+
+    /// <summary>被双击的那个词的位置：用来和选区校验，也用来把自己排除在"其余同名处"之外。</summary>
+    private int _occurrenceAnchor = -1;
+
     private readonly SearchHighlightRenderer _highlighter = new();
+    private readonly OccurrenceHighlightRenderer _occurrences = new();
     private readonly DispatcherTimer _foldTimer;
     private readonly FoldingManager _foldManager;
 
@@ -89,6 +96,8 @@ public partial class DocumentTab : UserControl
         Editor.Options.EnableEmailHyperlinks = false;
         Editor.Options.CutCopyWholeLine = true;
 
+        // 背景层的顺序 = 绘制顺序：同名单词先画，查找高亮后画，查找颜色总能压在上面
+        Editor.TextArea.TextView.BackgroundRenderers.Add(_occurrences);
         Editor.TextArea.TextView.BackgroundRenderers.Add(_highlighter);
 
         // 折叠：Install 会顺手把左侧的 +/- 按钮（FoldingMargin）挂到边距栏里
@@ -116,10 +125,26 @@ public partial class DocumentTab : UserControl
             UpdateFoldings();
         };
 
-        Editor.TextArea.Caret.PositionChanged += (_, _) => RaiseCaretMoved();
-        Editor.TextArea.SelectionChanged += (_, _) => RaiseCaretMoved();
-        Editor.TextArea.TextView.ScrollOffsetChanged += (_, _) => RefreshHighlights();
-        Editor.SizeChanged += (_, _) => RefreshHighlights();
+        Editor.TextArea.Caret.PositionChanged += (_, _) =>
+        {
+            RaiseCaretMoved();
+            DropOccurrencesIfSelectionLost();
+        };
+        Editor.TextArea.SelectionChanged += (_, _) =>
+        {
+            RaiseCaretMoved();
+            DropOccurrencesIfSelectionLost();
+        };
+        Editor.TextArea.TextView.ScrollOffsetChanged += (_, _) =>
+        {
+            RefreshHighlights();
+            RefreshOccurrences();
+        };
+        Editor.SizeChanged += (_, _) =>
+        {
+            RefreshHighlights();
+            RefreshOccurrences();
+        };
     }
 
     private void RaiseCaretMoved()
@@ -150,6 +175,13 @@ public partial class DocumentTab : UserControl
         if (e.Key == Key.End && (mods & ModifierKeys.Alt) == 0)
         {
             MoveCaretToEnd((mods & ModifierKeys.Control) != 0, (mods & ModifierKeys.Shift) != 0);
+            e.Handled = true;
+            return;
+        }
+
+        if (e.Key == Key.Escape && _occurrenceWord.Length > 0)
+        {
+            ClearOccurrences();
             e.Handled = true;
             return;
         }
@@ -242,6 +274,7 @@ public partial class DocumentTab : UserControl
 
         _dirty = false;
         _matchStart = -1;          // 换文件/重新加载后旧的命中位置作废
+        ClearOccurrences();
 
         if (resetCaret)
         {
@@ -269,6 +302,7 @@ public partial class DocumentTab : UserControl
 
         _dirty = false;
         _matchStart = -1;
+        ClearOccurrences();
 
         if (IsFindBarOpen)
         {
@@ -387,6 +421,7 @@ public partial class DocumentTab : UserControl
         var line = caret.Line;
         var column = caret.Column;
 
+        ClearOccurrences();          // 正文整段换掉，原来标的位置全失效
         _suppressText = true;
         try
         {
@@ -561,6 +596,7 @@ public partial class DocumentTab : UserControl
     /// <summary>打开查找条；withReplace = true 时同时显示替换行。</summary>
     public void ShowFind(bool withReplace)
     {
+        ClearOccurrences();          // 查找有自己的一套高亮，两套同时亮会打架
         FindBar.Visibility = Visibility.Visible;
         ReplaceBoxHost.Visibility = withReplace ? Visibility.Visible : Visibility.Collapsed;
         ReplaceGroup.Visibility = withReplace ? Visibility.Visible : Visibility.Collapsed;
@@ -747,6 +783,7 @@ public partial class DocumentTab : UserControl
             replaced = pattern.Replace(hay, _ => ReplaceBox.Text);
         }
 
+        ClearOccurrences();
         _suppressText = true;
         try
         {
@@ -905,6 +942,97 @@ public partial class DocumentTab : UserControl
         view.Redraw();
     }
 
+    // ---------------------------------------------------------------- 同名单词高亮
+
+    /// <summary>
+    /// 双击选中一个词后，把全文（可视区内）与它相同的整词淡淡标出来。
+    /// 触发只在双击，拖动选区/键盘选词不触发 —— 那些场合用户是在挑一段文字，不是在找同名处。
+    /// </summary>
+    public void ShowOccurrences(string word, int anchor)
+    {
+        if (!OccurrenceMatcher.IsWorthHighlighting(word))
+        {
+            ClearOccurrences();
+            return;
+        }
+
+        _occurrenceWord = word;
+        _occurrenceAnchor = anchor;
+        RefreshOccurrences();
+    }
+
+    /// <summary>撤掉同名单词高亮（关查找、按 Esc、改了正文、选区变了都会走到这里）。</summary>
+    public void ClearOccurrences()
+    {
+        if (_occurrenceWord.Length == 0 && _occurrences.Count == 0) return;
+
+        _occurrenceWord = "";
+        _occurrenceAnchor = -1;
+        _occurrences.Clear();
+        Editor.TextArea.TextView.Redraw();
+    }
+
+    /// <summary>
+    /// 选区不再是"双击选中的那个词"时撤掉高亮。
+    /// 双击后用户点别处、拖选、按方向键都会改变选区，此时继续标着同名处是干扰。
+    /// </summary>
+    private void DropOccurrencesIfSelectionLost()
+    {
+        if (_occurrenceWord.Length == 0) return;
+
+        if (Editor.SelectionLength != _occurrenceWord.Length || Editor.SelectionStart != _occurrenceAnchor)
+            ClearOccurrences();
+    }
+
+    /// <summary>重算可视区内的同名处。和查找高亮一样只扫可视行，大文件滚动不卡。</summary>
+    private void RefreshOccurrences()
+    {
+        if (_occurrenceWord.Length == 0) return;
+
+        var view = Editor.TextArea.TextView;
+        var text = Editor.Text;
+
+        // 正文被改过、光标处已经不是原来那个词了，就别再标了
+        if (_occurrenceAnchor < 0
+            || _occurrenceAnchor + _occurrenceWord.Length > text.Length
+            || string.Compare(text, _occurrenceAnchor, _occurrenceWord, 0, _occurrenceWord.Length,
+                              StringComparison.OrdinalIgnoreCase) != 0)
+        {
+            ClearOccurrences();
+            return;
+        }
+
+        if (!view.VisualLinesValid) view.EnsureVisualLines();
+        var lines = view.VisualLines;
+        if (lines.Count == 0)
+        {
+            _occurrences.SetEmpty();
+            return;
+        }
+
+        var doc = Editor.Document;
+        var firstLine = lines[0].FirstDocumentLine.LineNumber;
+        var lastLine = lines[lines.Count - 1].LastDocumentLine.LineNumber;
+
+        var winStart = doc.GetLineByNumber(firstLine).Offset;
+        var winEnd = doc.GetLineByNumber(lastLine).EndOffset;
+
+        // 匹配可能从上一行末尾跨到可视区：往回多看一个词的长度
+        var scan = Math.Max(0, winStart - _occurrenceWord.Length);
+
+        var found = OccurrenceMatcher.Find(text, _occurrenceWord, scan, winEnd, MaxMarksPerScreen);
+
+        var marks = new List<HighlightMark>(found.Count);
+        foreach (var o in found)
+        {
+            if (o.Start == _occurrenceAnchor) continue;      // 自己被选区交代，不用再涂
+            marks.Add(new HighlightMark(o.Start, o.Length, false));
+        }
+
+        _occurrences.Set(_occurrenceWord, marks);
+        view.Redraw();
+    }
+
     /// <summary>
     /// 命中位置如果正好被右上角浮着的查找面板压住，用户会以为"没高亮/没找到"。
     /// 这种时候把编辑区往上滚一点，让命中的行挪到面板下面来。
@@ -974,6 +1102,9 @@ public partial class DocumentTab : UserControl
     {
         if (_suppressText) return;
 
+        // 一动手打字，双击高亮就该收掉（同 VS Code）：写下去的正是那个词，标着只会乱
+        ClearOccurrences();
+
         RefreshMatchInfo();
         ScheduleFoldUpdate();
 
@@ -1021,6 +1152,7 @@ public partial class DocumentTab : UserControl
             if (line.Length <= 0) return;
             Editor.TextArea.Focus();
             Editor.Select(line.Offset, line.Length);
+            ClearOccurrences();          // 选整行时不再标同名单词
             e.Handled = true;
             return;
         }
@@ -1030,6 +1162,7 @@ public partial class DocumentTab : UserControl
 
         Editor.TextArea.Focus();
         Editor.Select(wordStart, wordLen);
+        ShowOccurrences(doc.Text.Substring(wordStart, wordLen), wordStart);
         e.Handled = true;
     }
 }
